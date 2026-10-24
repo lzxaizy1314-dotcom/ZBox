@@ -25,7 +25,8 @@ data class ThemeConfig(
 
 private val SeedRedArgb: Int = 0xFFD02020.toInt()
 
-val DefaultSeedArgb: Int = SeedRedArgb
+// ZBox 二开默认种子色改为暖纸主题的暖橙（见 Color.kt PaperSeedArgb）
+val DefaultSeedArgb: Int = PaperSeedArgb
 
 val DefaultPaletteStyle: PaletteStyle = PaletteStyle.TonalSpot
 
