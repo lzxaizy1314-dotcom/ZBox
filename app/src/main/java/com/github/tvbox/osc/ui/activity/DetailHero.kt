@@ -34,10 +34,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -88,7 +86,6 @@ import com.github.tvbox.osc.player.ui.PLAYER_PRESS_SCALE
 import com.github.tvbox.osc.player.ui.playerPressEffect
 import com.github.tvbox.osc.ui.components.HeroImageSizes
 import com.github.tvbox.osc.ui.components.ImagePalette
-import com.github.tvbox.osc.ui.components.LocalTopBarGlassBackdrop
 import com.github.tvbox.osc.ui.components.PosterSize
 import com.github.tvbox.osc.ui.components.PressMorphButtonShapes
 import com.github.tvbox.osc.ui.components.TopBarActionBox
@@ -103,8 +100,6 @@ import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.TmdbPoster
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.util.Locale
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers

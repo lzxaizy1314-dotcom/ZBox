@@ -15,16 +15,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -53,7 +57,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -68,8 +71,8 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.net.SearchSettings
 import com.github.tvbox.osc.ui.components.ClearFocusOnImeDismiss
-import com.github.tvbox.osc.ui.components.PressableCard
 import com.github.tvbox.osc.ui.components.VodPoster
+import com.github.tvbox.osc.ui.components.ratingBadgeText
 import com.github.tvbox.osc.ui.components.clearFocusOnDrag
 import com.github.tvbox.osc.ui.components.glassSurface
 import com.github.tvbox.osc.ui.WindowSize
@@ -84,10 +87,11 @@ internal fun HistoryChip(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    // ZBox 二开：历史/推荐词改为纸面上的白色胶囊 chip。
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(percent = 50),
+        color = MaterialTheme.colorScheme.surfaceBright,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Text(
             text = word,
@@ -97,7 +101,7 @@ internal fun HistoryChip(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 14.dp, vertical = 7.dp),
         )
     }
 }
@@ -218,7 +222,7 @@ internal fun RailResults(
     onSelectSource: (String?) -> Unit,
     topPad: Dp,
     railState: LazyListState,
-    listState: LazyListState,
+    listState: LazyGridState,
     onCardClick: (Movie.Video) -> Unit,
     onCardLongClick: (Movie.Video) -> Unit,
 ) {
@@ -286,15 +290,17 @@ internal fun RailResults(
                 .clearFocusOnDrag(focusManager),
         ) {
             val columns = WindowSize.rowColumns((maxWidth - 22.dp).value.toInt(), 3)
-            val pageRows = remember(rows, columns) { rows.chunked(columns) }
-            LazyColumn(
+            // ZBox 二开：结果区改为竖海报白卡网格（标题收进卡内），与收藏页卡片同语言。
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = topPad + 8.dp, bottom = 12.dp),
+                contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = topPad + 8.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (running) {
-                    item(key = "rail_progress") {
+                    item(key = "rail_progress", span = { GridItemSpan(maxLineSpan) }) {
                         LinearWavyProgressIndicator(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -302,29 +308,20 @@ internal fun RailResults(
                         )
                     }
                 }
-                items(
-                    pageRows,
-                    key = { chunk ->
-                        chunk.joinToString("|") { "${it.second.sourceKey.orEmpty()}:${it.second.id.orEmpty()}" }
-                    },
-                ) { chunk ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        chunk.forEach { (siteName, video) ->
-                            SearchResultRow(
-                                video = video,
-                                siteName = siteName.takeIf { selectedSource == null },
-                                onClick = { onCardClick(video) },
-                                onLongClick = { onCardLongClick(video) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        repeat(columns - chunk.size) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
+                itemsIndexed(
+                    rows,
+                    key = { index, pair -> "${index}_${pair.second.sourceKey.orEmpty()}_${pair.second.id.orEmpty()}" },
+                ) { _, pair ->
+                    val (siteName, video) = pair
+                    VodGridCard(
+                        video = video,
+                        subText = siteName.takeIf { selectedSource == null },
+                        onClick = { onCardClick(video) },
+                        onLongClick = { onCardLongClick(video) },
+                    )
                 }
                 if (rows.isEmpty() && !running) {
-                    item(key = "rail_empty") {
+                    item(key = "rail_empty", span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             text = stringResource(R.string.search_site_empty),
                             style = MaterialTheme.typography.bodyMedium,
@@ -460,26 +457,30 @@ internal fun SearchRailItem(
     }
 }
 
+/**
+ * ZBox 二开：竖海报白卡（搜索结果 / 分类网格共用），与收藏页 CollectCard 同语言：
+ * 白卡 20dp 圆角、海报 2:3、标题与副文案收进卡内底部，海报右上角保留评分角标。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun SearchResultRow(
+internal fun VodGridCard(
     video: Movie.Video,
-    siteName: String?,
+    subText: String?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    PressableCard(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier.fillMaxWidth(),
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.cardContainer)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(96.dp)
-                .background(MaterialTheme.colorScheme.cardContainer),
-            verticalAlignment = Alignment.CenterVertically,
+                .aspectRatio(2f / 3f),
         ) {
             VodPoster(
                 name = video.name,
@@ -488,72 +489,52 @@ internal fun SearchResultRow(
                 sourceKey = video.sourceKey,
                 tmdbCacheOnly = true,
                 altName = video.en,
-                modifier = Modifier
-                    .width(68.dp)
-                    .fillMaxHeight(),
+                modifier = Modifier.fillMaxSize(),
             )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
+            val badge = ratingBadgeText(video.note)
+            if (badge != null) {
                 Text(
-                    text = video.name ?: "",
-                    style = MaterialTheme.typography.titleSmall,
+                    text = badge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
-                if (!video.note.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = video.note.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val meta = searchMetaText(video)
-                    if (meta.isNotEmpty()) {
-                        Text(
-                            text = meta,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                    if (siteName != null) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = siteName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .widthIn(max = 90.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                }
             }
+        }
+        Text(
+            text = video.name ?: "",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = 8.dp,
+                    end = 8.dp,
+                    top = 8.dp,
+                    bottom = if (subText == null) 10.dp else 2.dp,
+                ),
+        )
+        if (subText != null) {
+            Text(
+                text = subText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, end = 8.dp, bottom = 10.dp),
+            )
         }
     }
 }
-
-internal fun searchMetaText(video: Movie.Video): String = listOfNotNull(
-    video.year.takeIf { it > 0 }?.toString(),
-    video.area?.takeIf { it.isNotBlank() },
-    video.type?.takeIf { it.isNotBlank() },
-).joinToString(" · ")

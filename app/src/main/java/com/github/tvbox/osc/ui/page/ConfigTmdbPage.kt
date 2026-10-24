@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -14,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -26,13 +29,30 @@ import com.github.tvbox.osc.ui.components.SettingsSwitchRow
 import com.github.tvbox.osc.ui.components.SettingsTestButton
 import com.github.tvbox.osc.ui.components.SettingsTextFieldRow
 
-private val SectionSpacing = 28.dp
+private val SectionSpacing = 16.dp
 
 private val CardContentPadding = 20.dp
 
 private val FieldVerticalPadding = 4.dp
 
 private val TestButtonSpacing = 12.dp
+
+private fun settingsCardShape(position: SettingsCardPosition): Shape = when (position) {
+    SettingsCardPosition.SINGLE -> RoundedCornerShape(20.dp)
+    SettingsCardPosition.FIRST -> RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = 4.dp,
+        bottomEnd = 4.dp,
+    )
+    SettingsCardPosition.MIDDLE -> RoundedCornerShape(4.dp)
+    SettingsCardPosition.LAST -> RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 4.dp,
+        bottomStart = 20.dp,
+        bottomEnd = 20.dp,
+    )
+}
 
 @Composable
 fun ConfigTmdbScreen(
@@ -46,11 +66,11 @@ fun ConfigTmdbScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
-            .padding(top = 24.dp, bottom = 8.dp),
+            .padding(top = 24.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(SectionSpacing),
     ) {
         SettingsGroup(title = null) {
-            SettingsCard(SettingsCardPosition.FIRST) {
+            SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                 SettingsSwitchRow(
                     title = stringResource(R.string.tmdb_enable),
                     leadingIconRes = if (state.enabled) {
@@ -62,7 +82,7 @@ fun ConfigTmdbScreen(
                     onCheckedChange = actions.setEnabled,
                 )
             }
-            SettingsCard(SettingsCardPosition.LAST) {
+            SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                 SettingsOptionMenuRow(
                     title = stringResource(R.string.tmdb_poster_style),
                     leadingIconRes = R.drawable.ic_config_poster_style,
@@ -74,7 +94,7 @@ fun ConfigTmdbScreen(
             }
         }
         SettingsGroup(title = null) {
-            SettingsCard(SettingsCardPosition.FIRST) {
+            SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                 TmdbTextField(
                     label = stringResource(R.string.tmdb_api_key),
                     value = state.apiKey,
@@ -83,7 +103,7 @@ fun ConfigTmdbScreen(
                     clearable = true,
                 )
             }
-            SettingsCard(SettingsCardPosition.MIDDLE) {
+            SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                 TmdbTextField(
                     label = stringResource(R.string.tmdb_api_base),
                     value = state.apiBase,
@@ -97,7 +117,7 @@ fun ConfigTmdbScreen(
                     onFocusLost = actions.commitApiBase,
                 )
             }
-            SettingsCard(SettingsCardPosition.MIDDLE) {
+            SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                 TmdbTextField(
                     label = stringResource(R.string.tmdb_image_base),
                     value = state.imageBase,
@@ -111,7 +131,7 @@ fun ConfigTmdbScreen(
                     onFocusLost = actions.commitImageBase,
                 )
             }
-            SettingsCard(SettingsCardPosition.LAST) {
+            SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -124,7 +144,7 @@ fun ConfigTmdbScreen(
                         ),
                         onClick = actions.testApi,
                         loading = testing == TmdbTest.Api,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
                     )
                     SettingsTestButton(
                         text = stringResource(
@@ -132,7 +152,7 @@ fun ConfigTmdbScreen(
                         ),
                         onClick = actions.testImage,
                         loading = testing == TmdbTest.Image,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
                     )
                 }
             }

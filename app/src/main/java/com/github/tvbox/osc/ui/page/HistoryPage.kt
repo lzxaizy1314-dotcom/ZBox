@@ -125,10 +125,10 @@ internal fun HistoryTab(
                             start = 16.dp + navStart,
                             end = 16.dp,
                             top = 12.dp,
-                            bottom = 8.dp + navBottom,
+                            bottom = 24.dp + navBottom,
                         ),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(content.items, key = { HistoryViewModel.key(it) }) { item ->
                             val itemKey = HistoryViewModel.key(item)

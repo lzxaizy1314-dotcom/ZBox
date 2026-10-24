@@ -19,7 +19,6 @@ import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -50,13 +49,10 @@ import com.github.tvbox.osc.ui.components.HomeBackdrop
 import com.github.tvbox.osc.ui.components.ImagePalette
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
-import com.github.tvbox.osc.ui.components.LocalTopBarGlassBackdrop
 import com.github.tvbox.osc.ui.components.PosterBackdrop
 import com.github.tvbox.osc.ui.components.VodCardMenu
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.AppThemeState
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -230,7 +226,6 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
         }
     }
 
-    val pageBackdrop = rememberLayerBackdrop(onDraw = { drawContent() })
     MaterialTheme(colorScheme = colorScheme) {
         Box(
             modifier = Modifier
@@ -240,7 +235,7 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
         ) {
             if (flatHero) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize().layerBackdrop(pageBackdrop)) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         val info = vm.vodInfo
                         if (info != null) {
                             DetailHeroPoster(
@@ -308,7 +303,6 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                         }
 
                         is DetailViewModel.PageState.Ready -> {
-                            CompositionLocalProvider(LocalTopBarGlassBackdrop provides pageBackdrop) {
                                 DetailContent(
                                     activity = activity,
                                     vm = vm,
@@ -316,7 +310,6 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                                     onPosterPic = { backdropPic = it },
                                     onSeed = { argb -> if (argb != null) backdropSeed = argb },
                                 )
-                            }
                         }
                     }
                 }

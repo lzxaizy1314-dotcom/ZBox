@@ -90,4 +90,7 @@
     <string name="tab_following">追劇</string>
     <string name="tab_mine">我的</string>
     <string name="following_empty">暫無追劇</string>
+    <string name="following_section_updates">有更新</string>
+    <string name="following_section_all">全部追更</string>
+    <string name="following_updated_to">更新至第 %1$d 集</string>
 </resources>

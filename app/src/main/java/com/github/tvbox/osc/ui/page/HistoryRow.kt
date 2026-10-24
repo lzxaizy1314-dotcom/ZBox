@@ -84,8 +84,8 @@ internal fun HistoryRow(
         ) {
             Box(
                 modifier = Modifier
-                    .width(64.dp)
-                    .aspectRatio(2f / 3f),
+                    .width(104.dp)
+                    .aspectRatio(16f / 9f),
             ) {
                 VodPoster(
                     name = item.name,
@@ -132,7 +132,7 @@ internal fun HistoryRow(
                     text = listOf(episodeLabel, watchedLabel.orEmpty())
                         .filter { it.isNotEmpty() }
                         .joinToString(HistoryMetaSeparator),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -231,7 +231,7 @@ internal fun HistoryRow(
     }
 }
 
-private val HistoryCardCorner = 22.dp
+private val HistoryCardCorner = 20.dp
 
 private val HistoryPosterCorner = 12.dp
 

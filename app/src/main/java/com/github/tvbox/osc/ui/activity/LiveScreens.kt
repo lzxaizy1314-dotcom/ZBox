@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -90,7 +91,7 @@ import kotlin.math.max
 
 @Composable
 internal fun LiveScreen(state: LivePlayUiState, actions: LivePlayActions) {
-    val background = if (state.frame.isFullBox) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+    val background = if (state.frame.isFullBox) Color.Black else MaterialTheme.colorScheme.background
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -209,6 +210,7 @@ private fun LiveReadyContent(state: LivePlayUiState, actions: LivePlayActions) {
             ChannelInfoSection(info = state.channelInfo, timeshift = state.timeshift, overlay = state.overlay)
             ChannelListSection(
                 channelList = state.channelList,
+                playingProgramTitle = state.channelInfo.currentEpgTitle,
                 onToggleGroup = actions.list.onToggleGroup,
                 onSelectChannel = actions.list.onSelectChannel,
                 modifier = Modifier.weight(1f),
@@ -443,53 +445,104 @@ private fun ChannelInfoSection(
     }
 }
 
+private class LiveChannelSection(
+    val key: String,
+    val header: LiveListRow?,
+    val channels: List<LiveListRow>,
+)
+
+private fun buildLiveSections(rows: List<LiveListRow>): List<LiveChannelSection> {
+    val sections = ArrayList<LiveChannelSection>()
+    var header: LiveListRow? = null
+    var channels = ArrayList<LiveListRow>()
+    fun flush() {
+        if (header != null || channels.isNotEmpty()) {
+            sections.add(
+                LiveChannelSection(
+                    key = header?.key ?: "live_section_${sections.size}",
+                    header = header,
+                    channels = channels.toList(),
+                ),
+            )
+            channels = ArrayList()
+        }
+    }
+    for (row in rows) {
+        if (row.channel == null) {
+            flush()
+            header = row
+        } else {
+            channels.add(row)
+        }
+    }
+    flush()
+    return sections
+}
+
 @Composable
 private fun ChannelListSection(
     channelList: LiveChannelListUi,
+    playingProgramTitle: String,
     onToggleGroup: (Int) -> Unit,
     onSelectChannel: (Int, Int) -> Unit,
     modifier: Modifier,
 ) {
     val listState = rememberLazyListState()
+    // ZBox 二开：频道列表按分组收进白卡，扁平行先按组切段再渲染。
+    val sections = remember(channelList.rows) { buildLiveSections(channelList.rows) }
     LaunchedEffect(channelList.scrollRequestId) {
-        var target = -1
-        for (i in channelList.rows.indices) {
-            val row = channelList.rows[i]
-            if (row.channel != null &&
+        val target = sections.indexOfFirst { section ->
+            section.channels.any { row ->
                 row.group?.groupIndex == channelList.playingGroupIndex &&
-                row.channel.channelIndex == channelList.playingChannelIndex
-            ) {
-                target = i
-                break
+                    row.channel?.channelIndex == channelList.playingChannelIndex
             }
         }
-        if (target > 0) listState.animateScrollToItem(max(0, target - 2))
+        if (target > 0) listState.animateScrollToItem(target)
     }
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(bottom = navBarInset + 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = navBarInset + 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        itemsIndexed(channelList.rows, key = { _, row -> row.key }) { _, row ->
-            val channel = row.channel
-            if (channel == null) {
-                val group = row.group ?: return@itemsIndexed
-                GroupHeaderRow(
-                    group = group,
-                    expanded = channelList.expandedGroups.contains(group.groupIndex),
-                    locked = channelList.lockedGroups.contains(group.groupIndex),
-                    onToggle = { onToggleGroup(group.groupIndex) },
-                )
-            } else {
-                val group = row.group
-                ChannelRow(
-                    row = row,
-                    selected = group != null &&
-                        group.groupIndex == channelList.playingGroupIndex &&
-                        channel.channelIndex == channelList.playingChannelIndex,
-                    onSelect = { onSelectChannel(group?.groupIndex ?: 0, row.channelPos) },
-                )
+        itemsIndexed(sections, key = { _, section -> section.key }) { _, section ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.cardContainer),
+            ) {
+                val header = section.header
+                val group = header?.group
+                if (header != null && group != null) {
+                    GroupHeaderRow(
+                        group = group,
+                        expanded = channelList.expandedGroups.contains(group.groupIndex),
+                        locked = channelList.lockedGroups.contains(group.groupIndex),
+                        onToggle = { onToggleGroup(group.groupIndex) },
+                    )
+                }
+                if (section.channels.isNotEmpty()) {
+                    if (header != null) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        )
+                    }
+                    section.channels.forEach { row ->
+                        val rowGroup = row.group
+                        val selected = rowGroup != null &&
+                            rowGroup.groupIndex == channelList.playingGroupIndex &&
+                            row.channel?.channelIndex == channelList.playingChannelIndex
+                        ChannelRow(
+                            row = row,
+                            selected = selected,
+                            programTitle = if (selected) playingProgramTitle else null,
+                            onSelect = { onSelectChannel(rowGroup?.groupIndex ?: 0, row.channelPos) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -506,12 +559,12 @@ private fun GroupHeaderRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = group.groupName ?: "",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
@@ -539,31 +592,49 @@ private fun GroupHeaderRow(
 private fun ChannelRow(
     row: LiveListRow,
     selected: Boolean,
+    programTitle: String?,
     onSelect: () -> Unit,
 ) {
     val channel = row.channel ?: return
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (selected) MaterialTheme.colorScheme.cardContainer else Color.Transparent)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+            )
             .clickable(onClick = onSelect)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
     ) {
-        Text(
-            text = channel.channelNum.toString(),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(36.dp),
-        )
-        Text(
-            text = channel.channelName ?: "",
-            fontSize = 15.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = channel.channelNum.toString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(36.dp),
+            )
+            Text(
+                text = channel.channelName ?: "",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (!programTitle.isNullOrBlank()) {
+            Text(
+                text = programTitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 36.dp, top = 2.dp),
+            )
+        }
     }
 }
 
@@ -600,21 +671,34 @@ private fun EpgSheet(
         val now = Date()
         LazyColumn(
             modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            itemsIndexed(epgList) { index, item ->
+            itemsIndexed(
+                epgList,
+                key = { _, item -> "epg_${item.startdateTime?.time ?: 0L}_${item.index}" },
+            ) { index, item ->
                 val isNow = item.startdateTime != null && item.enddateTime != null &&
                         !now.before(item.startdateTime) && !now.after(item.enddateTime)
                 val clickable = item.startdateTime != null && !now.before(item.startdateTime) &&
                         (canCatchup || (item.enddateTime != null && !now.after(item.enddateTime)))
                 val selected = index == epg.lookBackIndex
+                // ZBox 二开：节目单改为白卡行，选中（回看中）行用暖橙容器色高亮。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.cardContainer
+                            },
+                        )
                         .clickable(enabled = clickable) {
                             if (onRowClicked(index)) dismissAnimated()
                         }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(

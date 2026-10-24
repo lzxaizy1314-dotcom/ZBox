@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -33,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -88,6 +91,23 @@ private fun badgeText(name: String, url: String, emptyText: String): String = wh
     name.isNotEmpty() -> name
     url.isEmpty() -> emptyText
     else -> url.substringAfter("://").substringBefore('/').ifEmpty { url }
+}
+
+private fun settingsCardShape(position: SettingsCardPosition): Shape = when (position) {
+    SettingsCardPosition.SINGLE -> RoundedCornerShape(20.dp)
+    SettingsCardPosition.FIRST -> RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = 4.dp,
+        bottomEnd = 4.dp,
+    )
+    SettingsCardPosition.MIDDLE -> RoundedCornerShape(4.dp)
+    SettingsCardPosition.LAST -> RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 4.dp,
+        bottomStart = 20.dp,
+        bottomEnd = 20.dp,
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -147,6 +167,13 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
         badgeText(
             vodItems.firstOrNull { parseSubscribe(it).url == activeUrl }?.let { parseSubscribe(it).name }.orEmpty(),
             activeUrl,
+            noSourceText,
+        )
+    }
+    val liveBadge = remember(liveItems, liveActiveUrl, noSourceText) {
+        badgeText(
+            liveItems.firstOrNull { parseSubscribe(it).url == liveActiveUrl }?.let { parseSubscribe(it).name }.orEmpty(),
+            liveActiveUrl,
             noSourceText,
         )
     }
@@ -306,6 +333,21 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                             emptyIconRes = R.drawable.ic_empty_record,
                             modifier = Modifier.fillMaxWidth().weight(1f),
                         )
+                        Button(
+                            onClick = { addDialogOpen = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (mIsVod) R.string.config_add_subscribe
+                                    else R.string.config_add_live_source
+                                ),
+                            )
+                        }
                     }
                 } else {
                     val mOrdered = remember(mItems, activeUrl, liveActiveUrl, liveFollow, mIsVod) {
@@ -323,10 +365,17 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                             start = 16.dp,
                             end = 16.dp,
                             top = 24.dp,
-                            bottom = 8.dp,
+                            bottom = 24.dp,
                         ),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        item(key = "Current#config") {
+                            CurrentConfigCard(
+                                name = if (mIsVod) vodBadge else if (liveFollow) vodBadge else liveBadge,
+                                url = if (mIsVod) activeUrl else if (liveFollow) activeUrl else liveActiveUrl,
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
                         if (!mIsVod) {
                             item(key = "Live#follow") {
                                 FollowVodCard(
@@ -376,6 +425,24 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                                     }
                                 },
                             )
+                        }
+                        if (!manageMode) {
+                            item(key = "Add#source") {
+                                Button(
+                                    onClick = { addDialogOpen = true },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            if (mIsVod) R.string.config_add_subscribe
+                                            else R.string.config_add_live_source
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -469,13 +536,15 @@ private fun RepoSwitchSheet(
         ) {
             entries.forEachIndexed { index, entry ->
                 val url = HistoryHelper.getApiLineUrl(entry)
+                val cardPosition = when {
+                    entries.size <= 1 -> SettingsCardPosition.SINGLE
+                    index == 0 -> SettingsCardPosition.FIRST
+                    index == entries.size - 1 -> SettingsCardPosition.LAST
+                    else -> SettingsCardPosition.MIDDLE
+                }
                 SettingsCard(
-                    position = when {
-                        entries.size <= 1 -> SettingsCardPosition.SINGLE
-                        index == 0 -> SettingsCardPosition.FIRST
-                        index == entries.size - 1 -> SettingsCardPosition.LAST
-                        else -> SettingsCardPosition.MIDDLE
-                    },
+                    position = cardPosition,
+                    shape = settingsCardShape(cardPosition),
                     color = MaterialTheme.colorScheme.surfaceBright,
                 ) {
                     SettingsOptionRow(
@@ -511,13 +580,64 @@ private fun RepoSwitchSheet(
 }
 
 @Composable
+private fun CurrentConfigCard(
+    name: String,
+    url: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.cardContainer,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (url.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FollowVodCard(
     checked: Boolean,
     subtitle: String,
     onFollow: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SettingsCard(position = SettingsCardPosition.SINGLE, modifier = modifier) {
+    SettingsCard(
+        position = SettingsCardPosition.SINGLE,
+        shape = settingsCardShape(SettingsCardPosition.SINGLE),
+        modifier = modifier,
+    ) {
         SettingsSwitchRow(
             title = stringResource(R.string.live_follow_vod_source),
             leadingIconRes = R.drawable.ic_subscribe_source,
@@ -542,7 +662,7 @@ private fun SubscribeCard(
     onLongClick: () -> Unit,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(20.dp)
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = shape,
@@ -559,6 +679,15 @@ private fun SubscribeCard(
             RowLeadingIcon(R.drawable.ic_subscribe_source, enabled = true)
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (active) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Text(
                         text = item.name,
                         style = MaterialTheme.typography.titleMedium,
@@ -575,7 +704,7 @@ private fun SubscribeCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = item.url,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

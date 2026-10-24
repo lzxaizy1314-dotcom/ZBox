@@ -60,6 +60,7 @@ import com.github.tvbox.osc.ui.WindowSize
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.VodPoster
+import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.SubscribeList
@@ -234,10 +235,10 @@ internal fun CollectTab(
                             start = 16.dp + navStart,
                             end = 16.dp,
                             top = 12.dp,
-                            bottom = 8.dp + navBottom,
+                            bottom = 24.dp + navBottom,
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(list, key = { it.id }) { item ->
                             CollectCard(
@@ -305,13 +306,17 @@ private fun CollectCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.cardContainer)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(16.dp))
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                .aspectRatio(2f / 3f),
         ) {
             VodPoster(name = item.name, pic = item.pic, sourceKey = item.sourceKey, tmdbCacheOnly = true, modifier = Modifier.fillMaxSize())
             if (editMode) {
@@ -346,7 +351,7 @@ private fun CollectCard(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp),
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 10.dp),
         )
     }
 }

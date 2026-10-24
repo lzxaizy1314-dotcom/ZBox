@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -71,6 +73,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val CACHE_SIZE_REFRESH_MIN_INTERVAL_MS = 60_000L
+
+private fun settingsCardShape(position: SettingsCardPosition): Shape = when (position) {
+    SettingsCardPosition.SINGLE -> RoundedCornerShape(20.dp)
+    SettingsCardPosition.FIRST -> RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = 4.dp,
+        bottomEnd = 4.dp,
+    )
+    SettingsCardPosition.MIDDLE -> RoundedCornerShape(4.dp)
+    SettingsCardPosition.LAST -> RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 4.dp,
+        bottomStart = 20.dp,
+        bottomEnd = 20.dp,
+    )
+}
 
 data class SettingsState(
     val playType: Int,
@@ -235,15 +254,15 @@ fun SettingsPage(
                 .fillMaxSize()
                 .verticalScroll(listState)
                 .padding(horizontal = 16.dp)
-                .padding(start = navStart, bottom = 8.dp + navBottom),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
+                .padding(start = navStart, bottom = 24.dp + navBottom),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(Modifier.height(topPad - 20.dp))
 
             AppInfoHeaderCard(versionName = versionName)
 
             SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsRow(
                         title = stringResource(R.string.settings_config_manage),
                         subtitle = stringResource(R.string.settings_config_manage_subtitle),
@@ -251,7 +270,7 @@ fun SettingsPage(
                         onClick = { ConfigManageActivity.start(context) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsRow(
                         title = stringResource(R.string.settings_theme),
                         subtitle = stringResource(R.string.settings_theme_subtitle),
@@ -259,7 +278,7 @@ fun SettingsPage(
                         onClick = { ThemeSettingsActivity.start(context) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsRow(
                         title = stringResource(R.string.settings_play),
                         subtitle = stringResource(R.string.settings_play_subtitle),
@@ -267,7 +286,7 @@ fun SettingsPage(
                         onClick = { PlaySettingsActivity.start(context) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     SettingsRow(
                         title = stringResource(R.string.settings_preference_title),
                         subtitle = stringResource(R.string.settings_preference_subtitle),
@@ -278,7 +297,7 @@ fun SettingsPage(
             }
 
             SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsOptionMenuRow(
                         title = stringResource(R.string.settings_default_page),
                         subtitle = stringResource(R.string.settings_default_page_subtitle),
@@ -292,7 +311,7 @@ fun SettingsPage(
                         onSelect = { idx -> vm.put(HawkConfig.DEFAULT_LOAD_LIVE, idx == 1) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsOptionMenuRow(
                         title = stringResource(R.string.settings_history_limit),
                         subtitle = stringResource(R.string.settings_history_limit_subtitle),
@@ -308,7 +327,45 @@ fun SettingsPage(
                         onSelect = { idx -> vm.put(HawkConfig.HISTORY_NUM, idx) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
+                    SettingsOptionMenuRow(
+                        title = "DOH",
+                        subtitle = stringResource(R.string.settings_doh_subtitle),
+                        iconRes = R.drawable.ic_settings_doh,
+                        valueText = if (state.dohIndex == 0) stringResource(R.string.common_off)
+                        else OkGoHelper.dnsHttpsList.getOrNull(state.dohIndex)
+                            ?: stringResource(R.string.common_off),
+                        options = OkGoHelper.dnsHttpsList.mapIndexed { index, name ->
+                            if (index == 0) context.getString(R.string.common_off) else name
+                        },
+                        selectedIndex = state.dohIndex,
+                        onSelect = { idx -> vm.put(HawkConfig.DOH_URL, idx) },
+                    )
+                }
+            }
+
+            SettingsGroup(title = null) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
+                    SettingsRow(
+                        title = stringResource(R.string.settings_about),
+                        subtitle = stringResource(R.string.settings_about_subtitle),
+                        iconRes = R.drawable.ic_settings_about,
+                        onClick = { aboutSheet = true },
+                    )
+                }
+
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
+                    SettingsRow(
+                        title = stringResource(R.string.settings_github),
+                        subtitle = stringResource(R.string.settings_github_subtitle),
+                        iconRes = R.drawable.ic_settings_github,
+                        onClick = { openExternalUrl(context, GITHUB_REPO_URL) },
+                    )
+                }
+            }
+
+            SettingsGroup(title = null) {
+                SettingsCard(SettingsCardPosition.SINGLE, shape = settingsCardShape(SettingsCardPosition.SINGLE)) {
                     var showClearCacheDialog by rememberSaveable { mutableStateOf(false) }
                     SettingsRow(
                         title = stringResource(R.string.settings_clear_cache),
@@ -346,41 +403,6 @@ fun SettingsPage(
                             },
                         )
                     }
-                }
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsOptionMenuRow(
-                        title = "DOH",
-                        subtitle = stringResource(R.string.settings_doh_subtitle),
-                        iconRes = R.drawable.ic_settings_doh,
-                        valueText = if (state.dohIndex == 0) stringResource(R.string.common_off)
-                        else OkGoHelper.dnsHttpsList.getOrNull(state.dohIndex)
-                            ?: stringResource(R.string.common_off),
-                        options = OkGoHelper.dnsHttpsList.mapIndexed { index, name ->
-                            if (index == 0) context.getString(R.string.common_off) else name
-                        },
-                        selectedIndex = state.dohIndex,
-                        onSelect = { idx -> vm.put(HawkConfig.DOH_URL, idx) },
-                    )
-                }
-            }
-
-            SettingsGroup(title = null) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_about),
-                        subtitle = stringResource(R.string.settings_about_subtitle),
-                        iconRes = R.drawable.ic_settings_about,
-                        onClick = { aboutSheet = true },
-                    )
-                }
-
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsRow(
-                        title = stringResource(R.string.settings_github),
-                        subtitle = stringResource(R.string.settings_github_subtitle),
-                        iconRes = R.drawable.ic_settings_github,
-                        onClick = { openExternalUrl(context, GITHUB_REPO_URL) },
-                    )
                 }
             }
         }

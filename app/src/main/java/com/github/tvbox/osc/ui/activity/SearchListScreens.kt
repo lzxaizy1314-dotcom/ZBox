@@ -35,8 +35,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.bean.Movie
-import com.github.tvbox.osc.ui.components.VodCard
-import com.github.tvbox.osc.ui.components.VodCardStyle
 import com.github.tvbox.osc.ui.components.clearFocusOnDrag
 import com.github.tvbox.osc.ui.theme.filterChipColors
 
@@ -109,7 +107,7 @@ internal fun SearchListResults(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+                        .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -143,15 +141,15 @@ internal fun SearchListResults(
                 }
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     itemsIndexed(result.videos) { _, video ->
-                        VodCard(
+                        VodGridCard(
                             video = video,
+                            subText = null,
                             onClick = { onCardClick(video) },
                             onLongClick = { onCardLongClick(video) },
                             modifier = Modifier.width(110.dp),
-                            style = VodCardStyle.Stacked,
                         )
                     }
                 }

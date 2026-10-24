@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -112,6 +113,7 @@ fun SearchScreen(vm: SearchViewModel = rememberSearchViewModel()) {
 
     AppTopBarScaffold(
         collapseEnabled = false,
+        containerColor = MaterialTheme.colorScheme.background,
         titleContent = {
             SearchField(
                 query = query,
@@ -236,7 +238,7 @@ private fun SearchResultsContent(
         return
     }
     val railState = rememberLazyListState()
-    val railResultState = rememberLazyListState()
+    val railResultState = rememberLazyGridState()
     AnimatedContent(
         targetState = resultLayout,
         transitionSpec = {

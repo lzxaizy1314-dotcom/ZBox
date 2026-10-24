@@ -10,23 +10,34 @@ import android.content.Intent
 import android.widget.Toast
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,7 +56,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import com.github.tvbox.osc.R
@@ -53,13 +63,10 @@ import com.github.tvbox.osc.base.BaseActivity
 import com.github.tvbox.osc.ui.components.SheetHostScaffold
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.bean.MovieSort
-import com.github.tvbox.osc.ui.components.FilterSheet
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
-import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.components.VodCardMenu
-import com.github.tvbox.osc.ui.components.VodCardStyle
 import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.WindowSize
@@ -192,7 +199,6 @@ class PartitionListActivity : BaseActivity() {
 @Composable
 private fun PartitionListScreen(mode: String, videosJson: String?, onBack: () -> Unit, vm: PartitionListVM) {
     val context = LocalContext.current
-    var filterOpen by remember { mutableStateOf(false) }
     val ui by vm.ui.collectAsState()
     val title by vm.title.collectAsState()
     val level by vm.level.collectAsState()
@@ -214,8 +220,16 @@ private fun PartitionListScreen(mode: String, videosJson: String?, onBack: () ->
         }
     }
 
+    // ZBox 二开：筛选从弹层改为顶栏下方的内联胶囊行，选中即生效。
+    val sort = vm.sort
+    var filterSelection by remember(sort?.id, level) {
+        mutableStateOf(sort?.filterSelect?.toMap() ?: emptyMap())
+    }
+    val filtersVisible = mode == PartitionListActivity.MODE_PARTITION &&
+        sort != null && sort.filters.isNotEmpty()
+
     AppTopBarScaffold(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        containerColor = MaterialTheme.colorScheme.background,
         titleContent = {
             Text(
                 text = title,
@@ -228,76 +242,155 @@ private fun PartitionListScreen(mode: String, videosJson: String?, onBack: () ->
         navigationIcon = {
             BarActionBox(R.drawable.ic_arrow_left, stringResource(R.string.common_back)) { onBack() }
         },
-        actions = {
-            if (mode == PartitionListActivity.MODE_PARTITION) {
-                val selectedCount = vm.sort?.filterSelectCount() ?: 0
-                BarActionBox(
-                    R.drawable.ic_filter,
-                    stringResource(R.string.common_filter),
-                    tint = if (selectedCount > 0) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                ) { filterOpen = true }
-            }
-        },
     ) { topPad, _ ->
-        when {
-            mode == PartitionListActivity.MODE_SEARCH -> VideoGrid(
-                videos = searchVideos,
-                onCardClick = { video -> context.openVodCardOrDetail(video) },
-                onCardLongClick = { video -> vodMenu.show(video) },
-                onLoadMore = {},
-                topPadding = topPad - 20.dp,
-            )
-
-            ui.state == PartitionListVM.State.Loading -> LoadStateBox(
-                state = LoadState.Loading,
-                emptyText = "",
-                errorText = "",
-                retryText = "",
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(modifier = Modifier.height(topPad + 12.dp))
+            if (filtersVisible) {
+                FilterChipsSection(
+                    sort = sort,
+                    selection = filterSelection,
+                    onSelectionChange = { next ->
+                        filterSelection = next
+                        vm.applyFilter(next)
+                    },
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = topPad),
-                loadingContent = { ContainedLoadingIndicator(Modifier.size(64.dp)) },
-            )
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                when {
+                    mode == PartitionListActivity.MODE_SEARCH -> VideoGrid(
+                        videos = searchVideos,
+                        onCardClick = { video -> context.openVodCardOrDetail(video) },
+                        onCardLongClick = { video -> vodMenu.show(video) },
+                        onLoadMore = {},
+                    )
 
-            ui.state == PartitionListVM.State.Empty -> LoadStateBox(
-                state = LoadState.Empty,
-                emptyText = stringResource(R.string.common_empty_content),
-                errorText = "",
-                retryText = "",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = topPad),
-            )
+                    ui.state == PartitionListVM.State.Loading -> LoadStateBox(
+                        state = LoadState.Loading,
+                        emptyText = "",
+                        errorText = "",
+                        retryText = "",
+                        modifier = Modifier.fillMaxSize(),
+                        loadingContent = { ContainedLoadingIndicator(Modifier.size(64.dp)) },
+                    )
 
-            else -> VideoGrid(
-                videos = ui.videos,
-                onCardClick = { video -> context.dispatchVodCardClick(video, onAction = { vm.runAction(it) }) },
-                onCardLongClick = { video -> vodMenu.show(video) },
-                onLoadMore = { vm.loadMore() },
-                enableLoadMore = true,
-                topPadding = topPad - 20.dp,
-                resetKey = level,
-            )
+                    ui.state == PartitionListVM.State.Empty -> LoadStateBox(
+                        state = LoadState.Empty,
+                        emptyText = stringResource(R.string.common_empty_content),
+                        errorText = "",
+                        retryText = "",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+
+                    else -> VideoGrid(
+                        videos = ui.videos,
+                        onCardClick = { video -> context.dispatchVodCardClick(video, onAction = { vm.runAction(it) }) },
+                        onCardLongClick = { video -> vodMenu.show(video) },
+                        onLoadMore = { vm.loadMore() },
+                        enableLoadMore = true,
+                        resetKey = level,
+                    )
+                }
+            }
         }
     }
 
     val menuContext = LocalContext.current
     VodCardMenu(vodMenu) { menuContext.jumpToSearch(it) }
+}
 
-    if (filterOpen) {
-        vm.sort?.let { sort ->
-            FilterSheet(
-                sort = sort,
-                onDismiss = { filterOpen = false },
-                onConfirm = { selection ->
-                    vm.applyFilter(selection)
-                },
-            )
+@Composable
+private fun FilterChipsSection(
+    sort: MovieSort.SortData,
+    selection: Map<String, String>,
+    onSelectionChange: (Map<String, String>) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        sort.filters.forEach { filter ->
+            val filterKey = filter.key.orEmpty()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = filter.name ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.width(40.dp),
+                )
+                LazyRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item(key = "filter_all_$filterKey") {
+                        FilterCapsule(
+                            label = stringResource(R.string.common_all),
+                            selected = selection[filterKey] == null,
+                            onClick = { onSelectionChange(selection - filterKey) },
+                        )
+                    }
+                    items(
+                        filter.values.orEmpty().entries.toList(),
+                        key = { entry -> "filter_${filterKey}_${entry.key}" },
+                    ) { (valueKey, valueName) ->
+                        FilterCapsule(
+                            label = valueName,
+                            selected = selection[filterKey] == valueKey,
+                            onClick = {
+                                onSelectionChange(
+                                    if (selection[filterKey] == valueKey) {
+                                        selection - filterKey
+                                    } else {
+                                        selection + (filterKey to valueKey)
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun FilterCapsule(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(percent = 50),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceBright
+        },
+        border = if (selected) {
+            null
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+        )
     }
 }
 
@@ -331,7 +424,6 @@ private fun VideoGrid(
     onCardLongClick: (Movie.Video) -> Unit,
     onLoadMore: () -> Unit = {},
     enableLoadMore: Boolean = false,
-    topPadding: Dp = 0.dp,
     resetKey: Any? = null,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -346,17 +438,17 @@ private fun VideoGrid(
     LazyVerticalGrid(
         columns = GridCells.Fixed(gridColumns),
         state = gridState,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 28.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         itemsIndexed(videos, key = { i, video -> "${i}_${video.id}_${video.name}" }) { _, video ->
-            VodCard(
+            VodGridCard(
                 video = video,
+                subText = null,
                 onClick = { onCardClick(video) },
                 onLongClick = { onCardLongClick(video) },
-                style = VodCardStyle.Stacked,
             )
         }
         if (enableLoadMore) {

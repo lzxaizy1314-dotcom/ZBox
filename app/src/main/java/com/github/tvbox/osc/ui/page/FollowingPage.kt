@@ -10,21 +10,26 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -65,7 +71,6 @@ fun FollowingPage(
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val vm: FollowingViewModel = viewModel()
-    val context = LocalContext.current
     val navStart = contentPadding.calculateStartPadding(LocalLayoutDirection.current)
     val navBottom = contentPadding.calculateBottomPadding()
 
@@ -79,12 +84,10 @@ fun FollowingPage(
     val today by vm.today.collectAsStateWithLifecycle()
 
     val listState = rememberLazyGridState()
-    val scope = rememberCoroutineScope()
     var deleteDialog by remember { mutableStateOf(false) }
 
     val follows = remember(items) { items.map { it.follow } }
     val visible = remember(items, selectedDay) { FollowListRules.visible(items, selectedDay) }
-    val dayLabels = WeekdayRes.map { stringResource(it) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
     BackHandler(enabled = editMode) { vm.exitEdit() }
@@ -147,19 +150,6 @@ fun FollowingPage(
                     selectedDay = selectedDay,
                     onSelectDay = { vm.selectDay(it) },
                 )
-                val currentDay = selectedDay
-                Text(
-                    text = if (currentDay == null) {
-                        stringResource(R.string.following_section_week, visible.size)
-                    } else {
-                        stringResource(R.string.following_section_day, dayLabels[currentDay], visible.size)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp + navStart, end = 16.dp, top = 12.dp, bottom = 4.dp),
-                )
             }
             when {
                 loading -> Box(
@@ -202,61 +192,77 @@ fun FollowingPage(
                         contentPadding = PaddingValues(
                             start = 16.dp + navStart,
                             end = 16.dp,
-                            top = 8.dp,
-                            bottom = 8.dp + navBottom,
+                            top = 12.dp,
+                            bottom = 24.dp + navBottom,
                         ),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(visible, key = { it.follow.id }) { entry ->
-                            val follow = entry.follow
-                            FollowRow(
-                                follow = follow,
-                                history = entry.history,
-                                totalEpisodes = episodeTotals[EpisodeTotals.key(follow.sourceKey, follow.vodId)],
-                                playedPercent = playedPercents[PlaybackProgress.key(follow.sourceKey, follow.vodId)],
-                                watched = FollowListRules.isWatched(entry, selectedDay),
-                                editMode = editMode,
-                                selected = follow.id in selected,
-                                selectedDay = selectedDay,
-                                today = today,
-                                modifier = Modifier.animateItem(
-                                    fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                    placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                    fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                ),
-                                onClick = {
-                                    if (editMode) {
-                                        vm.toggleSelected(follow.id)
-                                    } else {
-                                        val cid = follow.cid.orEmpty()
-                                        when {
-                                            cid.isEmpty() || cid == AppGraph.followRepository.currentCid() ->
-                                                context.jumpToDetail(
-                                                    follow.vodId, follow.sourceKey, follow.name, follow.pic,
-                                                )
-
-                                            SubscribeList.vodUrls().contains(cid) ->
-                                                scope.launch {
-                                                    reopenViaSubscription(
-                                                        context = context,
-                                                        cid = cid,
-                                                        sourceKey = follow.sourceKey,
-                                                        vodId = follow.vodId,
-                                                        name = follow.name,
-                                                        pic = follow.pic,
-                                                    )
-                                                }
-
-                                            else -> context.jumpToSearch(follow.name.orEmpty())
-                                        }
-                                    }
-                                },
-                                onLongClick = {
-                                    if (editMode) vm.toggleSelected(follow.id) else vm.enterEdit(follow.id)
-                                },
-                                onWatchedChange = { vm.setWatched(follow.id, it) },
+                        val updatedEntries = visible.filter { entry ->
+                            followHasUpdate(
+                                entry,
+                                episodeTotals[EpisodeTotals.key(entry.follow.sourceKey, entry.follow.vodId)],
                             )
+                        }
+                        val updatedIds = updatedEntries.map { it.follow.id }.toSet()
+                        val otherEntries = visible.filter { it.follow.id !in updatedIds }
+                        if (updatedEntries.isNotEmpty()) {
+                            item(key = "header_updates", span = { GridItemSpan(maxLineSpan) }) {
+                                FollowingGroupHeader(
+                                    text = stringResource(R.string.following_section_updates),
+                                    showDot = true,
+                                )
+                            }
+                            items(updatedEntries, key = { "upd_${it.follow.id}" }) { entry ->
+                                FollowEntryRow(
+                                    entry = entry,
+                                    totalEpisodes = episodeTotals[
+                                        EpisodeTotals.key(entry.follow.sourceKey, entry.follow.vodId),
+                                    ],
+                                    playedPercent = playedPercents[
+                                        PlaybackProgress.key(entry.follow.sourceKey, entry.follow.vodId),
+                                    ],
+                                    selectedDay = selectedDay,
+                                    today = today,
+                                    editMode = editMode,
+                                    selected = entry.follow.id in selected,
+                                    vm = vm,
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    ),
+                                )
+                            }
+                        }
+                        if (otherEntries.isNotEmpty()) {
+                            item(key = "header_all", span = { GridItemSpan(maxLineSpan) }) {
+                                FollowingGroupHeader(
+                                    text = stringResource(R.string.following_section_all),
+                                    showDot = false,
+                                )
+                            }
+                            items(otherEntries, key = { "all_${it.follow.id}" }) { entry ->
+                                FollowEntryRow(
+                                    entry = entry,
+                                    totalEpisodes = episodeTotals[
+                                        EpisodeTotals.key(entry.follow.sourceKey, entry.follow.vodId),
+                                    ],
+                                    playedPercent = playedPercents[
+                                        PlaybackProgress.key(entry.follow.sourceKey, entry.follow.vodId),
+                                    ],
+                                    selectedDay = selectedDay,
+                                    today = today,
+                                    editMode = editMode,
+                                    selected = entry.follow.id in selected,
+                                    vm = vm,
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -272,6 +278,105 @@ fun FollowingPage(
             onDismiss = { deleteDialog = false },
         )
     }
+}
+
+@Composable
+private fun FollowingGroupHeader(
+    text: String,
+    showDot: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 2.dp),
+    ) {
+        if (showDot) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun FollowEntryRow(
+    entry: FollowEntry,
+    totalEpisodes: Int?,
+    playedPercent: Int?,
+    selectedDay: Int?,
+    today: Int,
+    editMode: Boolean,
+    selected: Boolean,
+    vm: FollowingViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val follow = entry.follow
+    FollowRow(
+        follow = follow,
+        history = entry.history,
+        totalEpisodes = totalEpisodes,
+        playedPercent = playedPercent,
+        watched = FollowListRules.isWatched(entry, selectedDay),
+        editMode = editMode,
+        selected = selected,
+        selectedDay = selectedDay,
+        today = today,
+        modifier = modifier,
+        onClick = {
+            if (editMode) {
+                vm.toggleSelected(follow.id)
+            } else {
+                val cid = follow.cid.orEmpty()
+                when {
+                    cid.isEmpty() || cid == AppGraph.followRepository.currentCid() ->
+                        context.jumpToDetail(
+                            follow.vodId, follow.sourceKey, follow.name, follow.pic,
+                        )
+
+                    SubscribeList.vodUrls().contains(cid) ->
+                        scope.launch {
+                            reopenViaSubscription(
+                                context = context,
+                                cid = cid,
+                                sourceKey = follow.sourceKey,
+                                vodId = follow.vodId,
+                                name = follow.name,
+                                pic = follow.pic,
+                            )
+                        }
+
+                    else -> context.jumpToSearch(follow.name.orEmpty())
+                }
+            }
+        },
+        onLongClick = {
+            if (editMode) vm.toggleSelected(follow.id) else vm.enterEdit(follow.id)
+        },
+        onWatchedChange = { vm.setWatched(follow.id, it) },
+    )
+}
+
+// 与 FollowRow 内 followEpisodeTotal 同一推导：总集数大于已看集数才算有更新，总数未知保底为无
+private fun followHasUpdate(entry: FollowEntry, totalEpisodes: Int?): Boolean {
+    val history = entry.history ?: return false
+    val numberedEpisode = history.playNote.isNullOrEmpty() || EpisodeTotals.isNumberedEpisode(history.playNote)
+    if (!numberedEpisode) return false
+    val eps = totalEpisodes ?: parseEpisodeTotal(history.note) ?: parseEpisodeTotal(history.state) ?: return false
+    return history.playIndex + 1 < eps
 }
 
 @Composable

@@ -258,6 +258,9 @@
     <string name="following_no_schedule">未設定更新日</string>
     <string name="following_update_days">每%1$s</string>
     <string name="following_update_time">%1$s 更新</string>
+    <string name="following_section_updates">有更新</string>
+    <string name="following_section_all">全部追更</string>
+    <string name="following_updated_to">更新至第 %1$d 集</string>
     <string name="following_update_today_time">今天 %1$s 更新</string>
     <string name="following_not_watched">還沒有看</string>
     <string name="following_watched">已經看了</string>

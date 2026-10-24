@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -18,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -43,6 +45,23 @@ import com.github.tvbox.osc.util.HistoryMerge
 import com.github.tvbox.osc.util.LanguageManager
 import com.github.tvbox.osc.util.restartApp
 import kotlin.math.roundToInt
+
+private fun settingsCardShape(position: SettingsCardPosition): Shape = when (position) {
+    SettingsCardPosition.SINGLE -> RoundedCornerShape(20.dp)
+    SettingsCardPosition.FIRST -> RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = 4.dp,
+        bottomEnd = 4.dp,
+    )
+    SettingsCardPosition.MIDDLE -> RoundedCornerShape(4.dp)
+    SettingsCardPosition.LAST -> RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 4.dp,
+        bottomStart = 20.dp,
+        bottomEnd = 20.dp,
+    )
+}
 
 @Composable
 fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
@@ -75,10 +94,10 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
             Spacer(Modifier.height(topPad + 8.dp))
 
             SettingsGroup(title = stringResource(R.string.settings_group_language_layout)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     LanguageRow()
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     CollectColumnsRow(
                         columns = state.collectColumns,
                         onSelect = { columns ->
@@ -89,10 +108,10 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(16.dp))
 
             SettingsGroup(title = stringResource(R.string.settings_group_privacy)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_history_merge),
                         leadingIconRes = R.drawable.ic_pref_history_merge,
@@ -104,7 +123,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_incognito),
                         leadingIconRes = R.drawable.ic_pref_incognito,
@@ -115,7 +134,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_hide_status_bar),
                         leadingIconRes = R.drawable.ic_pref_hide_status_bar,
@@ -124,7 +143,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.HIDE_STATUS_BAR, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_gesture_disable),
                         leadingIconRes = R.drawable.ic_pref_gesture,
@@ -133,7 +152,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.GESTURE_CONTROL_DISABLED, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_nav_animation_disable),
                         leadingIconRes = R.drawable.ic_pref_nav_animation,
@@ -141,7 +160,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.NAV_ANIMATION_DISABLED, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_nav_live_hidden),
                         leadingIconRes = R.drawable.ic_pref_nav_live_hidden,
@@ -151,10 +170,10 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(16.dp))
 
             SettingsGroup(title = stringResource(R.string.settings_group_play_search)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_auto_switch_line),
                         leadingIconRes = R.drawable.ic_pref_auto_switch_line,
@@ -162,7 +181,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.AUTO_SWITCH_LINE, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_m3u8_purify),
                         leadingIconRes = R.drawable.ic_pref_m3u8_purify,
@@ -170,7 +189,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.M3U8_PURIFY, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_danmu_switch),
                         leadingIconRes = R.drawable.ic_pref_danmu,
@@ -178,7 +197,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.DANMU_OPEN, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsRow(
                         title = stringResource(R.string.settings_danmu_api),
                         leadingIconRes = R.drawable.ic_pref_danmu_api,
@@ -186,7 +205,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onClick = { danmuApiDialog = true },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSliderRow(
                         title = stringResource(R.string.settings_long_press_speed),
                         leadingIconRes = R.drawable.ic_pref_long_press_speed,
@@ -202,7 +221,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSliderRow(
                         title = stringResource(R.string.settings_buffer_time),
                         leadingIconRes = R.drawable.ic_pref_buffer_time,
@@ -218,7 +237,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     SettingsSliderRow(
                         title = stringResource(R.string.settings_search_threads),
                         leadingIconRes = R.drawable.ic_pref_search_threads,
@@ -236,7 +255,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                 }
             }
 
-            Spacer(Modifier.height(64.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 

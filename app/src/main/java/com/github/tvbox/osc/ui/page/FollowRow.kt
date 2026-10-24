@@ -61,7 +61,7 @@ private val ScheduleIconSize = 16.dp
 
 private val ScheduleTextIndent = 22.dp
 
-private val FollowCardCorner = 22.dp
+private val FollowCardCorner = 20.dp
 
 private val FollowPosterCorner = 12.dp
 
@@ -106,6 +106,9 @@ internal fun FollowRow(
         )
         else -> stringResource(R.string.following_update_days, daysText)
     }
+    // 有更新推导：总集数（接口总数或 note/state 解析）大于已看集数；总数未知时保底不显示
+    val eps = followEpisodeTotal(history, totalEpisodes)
+    val updateBadgeEps = eps?.takeIf { total -> history != null && history.playIndex + 1 < total }
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(FollowCardCorner),
@@ -180,6 +183,27 @@ internal fun FollowRow(
                         contentDescription = stringResource(R.string.player_menu_more),
                     )
                 }
+                if (updateBadgeEps != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.error),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(
+                                R.string.following_updated_to,
+                                updateBadgeEps,
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         painter = painterResource(R.drawable.ic_follow_update_time),
@@ -207,7 +231,6 @@ internal fun FollowRow(
                         )
                     }
                 }
-                val eps = followEpisodeTotal(history, totalEpisodes)
                 val episodeFraction = eps?.let { total ->
                     ((history?.playIndex ?: 0) + 1).coerceIn(1, total).toFloat() / total
                 }

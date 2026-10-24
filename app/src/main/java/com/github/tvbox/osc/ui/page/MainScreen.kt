@@ -5,12 +5,10 @@ package com.github.tvbox.osc.ui.page
 import com.github.tvbox.osc.api.AppBootstrap
 import android.app.Activity
 import android.content.Intent
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,13 +17,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -50,13 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -64,38 +53,31 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.rememberLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.server.ControlManager
 import com.github.tvbox.osc.ui.activity.LivePlayActivity
 import com.github.tvbox.osc.ui.components.AVBoxAlertDialog
-import com.github.tvbox.osc.ui.components.LocalTopBarGlassPauseRecording
 import com.github.tvbox.osc.ui.components.LocalSheetDismissThen
 import com.github.tvbox.osc.ui.components.LocalSheetHost
 import com.github.tvbox.osc.ui.components.SheetHost
 import com.github.tvbox.osc.ui.components.SheetHostState
 import com.github.tvbox.osc.ui.currentWindowWidthClass
-import com.github.tvbox.osc.ui.navbar.FloatingNavBar
-import com.github.tvbox.osc.ui.navbar.GlassTabItem
 import com.github.tvbox.osc.ui.navbar.NavAxis
 import com.github.tvbox.osc.ui.navbar.NavMetrics
-import com.github.tvbox.osc.ui.theme.LiquidGlassState
+import com.github.tvbox.osc.ui.navbar.NavTabItem
 import com.github.tvbox.osc.util.AppManager
 import com.github.tvbox.osc.util.BootGuard
 import com.github.tvbox.osc.util.HawkConfig
-import com.github.tvbox.osc.util.HomeSettings
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.launch
 
 private enum class AppTab(@StringRes val labelRes: Int, @DrawableRes val icon: Int) {
-    HOME(R.string.tab_home, R.drawable.ic_tab_home),
-    RECORDS(R.string.tab_records, R.drawable.ic_tab_records),
-    FOLLOWING(R.string.tab_following, R.drawable.ic_tab_following),
-    SETTINGS(R.string.tab_mine, R.drawable.ic_tab_mine),
+    HOME(R.string.tab_home, R.drawable.ic_nav_home),
+    RECORDS(R.string.tab_records, R.drawable.ic_nav_history),
+    FOLLOWING(R.string.tab_following, R.drawable.ic_nav_follow),
+    SETTINGS(R.string.tab_mine, R.drawable.ic_nav_me),
 }
 
 @Composable
@@ -193,71 +175,34 @@ private fun MainContent() {
             }
         }
     }
-    val liquidGlassConfig = LiquidGlassState.config
-    val liquidGlassEnabled = liquidGlassConfig.navbarEnabled &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val liquidBackdropBgColor = MaterialTheme.colorScheme.surfaceContainer
-    val liquidBackdropOnDraw: ContentDrawScope.() -> Unit =
-        remember(liquidBackdropBgColor) {
-            { drawRect(liquidBackdropBgColor); drawContent() }
-        }
-    val liquidBackdrop = rememberLayerBackdrop(onDraw = liquidBackdropOnDraw)
-    val pauseGlassRecording: () -> Boolean = remember(pagerState, sheetHost) {
-        { pagerState.isScrollInProgress || sheetHost.request != null }
-    }
-    val pauseTopBarRecording: () -> Boolean = remember(pagerState) {
-        { pagerState.isScrollInProgress }
-    }
-    val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
 
     val navAxis = NavMetrics.axisFor(currentWindowWidthClass())
     val railMode = navAxis == NavAxis.Vertical
-    val surfaceNavVisible = !liquidGlassEnabled
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues()
-    val navBandExtent = NavMetrics.BAND_EXTENT_DP.dp
-    val liquidBackdropBounds: (Size) -> Rect? = remember(density, navBandExtent, navAxis) {
-        { size ->
-            val extentPx = with(density) { navBandExtent.toPx() }
-            if (navAxis == NavAxis.Horizontal) {
-                Rect(0f, size.height - extentPx, size.width, size.height)
-            } else {
-                Rect(0f, 0f, extentPx, size.height)
-            }
-        }
-    }
-    val navReserve = NavMetrics.reserveDp(liquidGlassEnabled, navAxis).dp
-    val pageContentPadding: PaddingValues = when {
-        railMode -> PaddingValues(
+    val navReserve = NavMetrics.reserveDp(navAxis).dp
+    val pageContentPadding: PaddingValues = if (railMode) {
+        PaddingValues(
             start = navReserve + navBarsPadding.calculateStartPadding(layoutDirection),
             bottom = navBarsPadding.calculateBottomPadding(),
         )
-
-        liquidGlassEnabled -> PaddingValues(
-            bottom = navBarsPadding.calculateBottomPadding() + navReserve,
-        )
-
-        else -> PaddingValues(0.dp)
-    }
-    val tabLabels = AppTab.entries.map { stringResource(it.labelRes) }
-    val glassTabs = remember(tabLabels) {
-        AppTab.entries.mapIndexed { index, tab -> GlassTabItem(tab.icon, tabLabels[index]) }
+    } else {
+        PaddingValues(0.dp)
     }
     val liveActionLabel = stringResource(R.string.common_live)
-    val liveActionItem = remember(liveActionLabel) { GlassTabItem(R.drawable.ic_live_fab, liveActionLabel) }
+    val liveActionItem = remember(liveActionLabel) { NavTabItem(R.drawable.ic_nav_live, liveActionLabel) }
     val openLive: () -> Unit = remember(context) {
         { context.startActivity(Intent(context, LivePlayActivity::class.java)) }
     }
     CompositionLocalProvider(
         LocalSheetHost provides sheetHost,
-        LocalTopBarGlassPauseRecording provides pauseTopBarRecording,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
-                    if (surfaceNavVisible && !railMode) {
+                    if (!railMode) {
                         ShortNavigationBar(
                             containerColor = MaterialTheme.colorScheme.surfaceBright,
                         ) {
@@ -269,13 +214,25 @@ private fun MainContent() {
                                         icon = {
                                             Icon(
                                                 painterResource(liveActionItem.iconRes),
-                                                contentDescription = null,
+                                                contentDescription = liveActionItem.label,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         },
-                                        label = null,
+                                        label = {
+                                            Text(
+                                                liveActionItem.label,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        },
                                     )
                                 }
                                 val selected = pagerState.targetPage == index
+                                // 底栏重做：全 tab 恒显示标签；选中用暖橙 primary，未选中用 onSurfaceVariant
+                                val tabTint = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                                 ShortNavigationBarItem(
                                     selected = selected,
                                     onClick = { selectTab(index) },
@@ -283,12 +240,14 @@ private fun MainContent() {
                                         Icon(
                                             painterResource(tab.icon),
                                             contentDescription = stringResource(tab.labelRes),
+                                            tint = tabTint,
                                         )
                                     },
-                                    label = if (selected) {
-                                        { Text(stringResource(tab.labelRes)) }
-                                    } else {
-                                        null
+                                    label = {
+                                        Text(
+                                            stringResource(tab.labelRes),
+                                            color = tabTint,
+                                        )
                                     },
                                 )
                             }
@@ -296,24 +255,14 @@ private fun MainContent() {
                     }
                 },
             ) { innerPadding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (liquidGlassEnabled) {
-                                Modifier.layerBackdrop(liquidBackdrop, liquidBackdropBounds, pauseGlassRecording)
-                            } else {
-                                Modifier
-                            }
-                        ),
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     HorizontalPager(
                         state = pagerState,
                         userScrollEnabled = navAnimationEnabled,
                         beyondViewportPageCount = 3,
                         modifier = Modifier
                             .fillMaxSize()
-                            .then(if (liquidGlassEnabled) Modifier else Modifier.padding(innerPadding)),
+                            .padding(innerPadding),
                     ) { page ->
                         val pageLifecycleOwner = rememberLifecycleOwner(
                             maxLifecycle = if (page == pagerState.targetPage) {
@@ -333,49 +282,7 @@ private fun MainContent() {
                     }
                 }
             }
-            if (liquidGlassEnabled) {
-                val homeHorizontal = HomeSettings.layoutFlow.collectAsStateWithLifecycle().value ==
-                    HomeSettings.HomeLayout.Horizontal
-                if (navAxis == NavAxis.Horizontal && !homeHorizontal) {
-                    val scrimColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.9f)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(navBandExtent)
-                            .align(Alignment.BottomCenter)
-                            .background(Brush.verticalGradient(0f to Color.Transparent, 1f to scrimColor)),
-                    )
-                }
-                Box(
-                    modifier = if (navAxis == NavAxis.Horizontal) {
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(horizontal = 16.dp)
-                            .padding(bottom = NavMetrics.MARGIN_DP.dp)
-                    } else {
-                        Modifier
-                            .align(Alignment.CenterStart)
-                            .windowInsetsPadding(WindowInsets.systemBars)
-                            .padding(vertical = 16.dp)
-                            .padding(start = NavMetrics.MARGIN_DP.dp)
-                    },
-                ) {
-                    FloatingNavBar(
-                        backdrop = liquidBackdrop,
-                        axis = navAxis,
-                        selectedTabIndex = { pagerState.targetPage },
-                        onTabSelected = selectTab,
-                        tabs = glassTabs,
-                        config = liquidGlassConfig,
-                        interactive = { true },
-                        actionItem = if (navLiveHidden) null else liveActionItem,
-                        onActionClick = openLive,
-                    )
-                }
-            }
-            if (surfaceNavVisible && railMode) {
+            if (railMode) {
                 NavigationRail(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
@@ -391,22 +298,40 @@ private fun MainContent() {
                                 icon = {
                                     Icon(
                                         painterResource(liveActionItem.iconRes),
-                                        contentDescription = null,
+                                        contentDescription = liveActionItem.label,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
-                                label = { Text(liveActionItem.label) },
+                                label = {
+                                    Text(
+                                        liveActionItem.label,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
                             )
                         }
+                        val railSelected = pagerState.currentPage == index
+                        val railTint = if (railSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                         NavigationRailItem(
-                            selected = pagerState.currentPage == index,
+                            selected = railSelected,
                             onClick = { selectTab(index) },
                             icon = {
                                 Icon(
                                     painterResource(tab.icon),
                                     contentDescription = stringResource(tab.labelRes),
+                                    tint = railTint,
                                 )
                             },
-                            label = { Text(stringResource(tab.labelRes)) },
+                            label = {
+                                Text(
+                                    stringResource(tab.labelRes),
+                                    color = railTint,
+                                )
+                            },
                         )
                     }
                 }

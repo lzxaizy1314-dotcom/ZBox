@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -81,7 +82,7 @@ internal fun SearchIdleContent(
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = stringResource(R.string.search_history),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
@@ -164,7 +165,7 @@ internal fun SearchIdleContent(
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = suggestTitle,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -202,10 +203,14 @@ internal fun SearchIdleContent(
                             .padding(vertical = 8.dp),
                     )
                 } else {
-                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                    Column(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         hotSearch.chunked(2).forEachIndexed { rowIdx, pair ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 pair.forEachIndexed { colIdx, title ->
@@ -213,20 +218,23 @@ internal fun SearchIdleContent(
                                     Row(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(MaterialTheme.colorScheme.background)
                                             .clickable { onSearch(title) }
-                                            .padding(vertical = 8.dp),
+                                            .padding(horizontal = 10.dp, vertical = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
                                             text = rank.toString(),
-                                            style = MaterialTheme.typography.labelLarge,
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontFamily = FontFamily.Serif,
+                                            ),
                                             color = if (rank <= 3) {
                                                 MaterialTheme.colorScheme.primary
                                             } else {
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                             },
-                                            modifier = Modifier.width(20.dp),
+                                            modifier = Modifier.width(24.dp),
                                         )
                                         Text(
                                             text = title,

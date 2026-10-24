@@ -49,11 +49,7 @@ fun SearchField(
     val focusManager = LocalFocusManager.current
     var fieldFocused by remember { mutableStateOf(false) }
     ClearFocusOnImeDismiss(focusManager, fieldFocused)
-    val glass = if (LocalTopBarGlassBackdrop.current != null) {
-        Modifier.glassTopBarSurface(ContinuousCapsule, MaterialTheme.colorScheme.cardContainer, pressEffect = false)
-    } else {
-        Modifier.glassSurface(ContinuousCapsule, MaterialTheme.colorScheme.cardContainer, pressEffect = false)
-    }
+    val glass = Modifier.glassSurface(ContinuousCapsule, MaterialTheme.colorScheme.cardContainer, pressEffect = false)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier

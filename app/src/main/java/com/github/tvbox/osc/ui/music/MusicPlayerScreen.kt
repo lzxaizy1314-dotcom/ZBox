@@ -50,7 +50,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -67,8 +66,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -78,24 +75,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.ui.CastSheet
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.ui.components.ImagePalette
-import com.github.tvbox.osc.ui.components.LocalTopBarGlassBackdrop
 import com.github.tvbox.osc.ui.components.PosterBackdrop
 import com.github.tvbox.osc.ui.components.ScallopShape
 import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.player.PlayerTipState
 import com.github.tvbox.osc.ui.theme.AppThemeState
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.github.tvbox.osc.ui.theme.cardContainer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -125,11 +118,8 @@ fun MusicPlayerScreen(
     } ?: MaterialTheme.colorScheme
 
     MaterialTheme(colorScheme = colorScheme) {
-        val backdrop = rememberLayerBackdrop(onDraw = { drawContent() })
         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-            Box(modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                PosterBackdrop(state.artwork)
-            }
+            PosterBackdrop(state.artwork)
 
             Column(
                 modifier = Modifier
@@ -137,12 +127,10 @@ fun MusicPlayerScreen(
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
-                CompositionLocalProvider(LocalTopBarGlassBackdrop provides backdrop) {
                     MusicTopBar(
                         sourceName = state.sourceName,
                         onBack = onBack,
                     )
-                }
 
                 BoxWithConstraints(
                     modifier = Modifier
@@ -159,8 +147,6 @@ fun MusicPlayerScreen(
                     )
                 }
 
-                MusicInfo(title = state.title, subtitle = state.subtitle)
-
                 if (state.lyrics.isNotEmpty()) {
                     MusicLyrics(
                         lines = state.lyrics,
@@ -173,43 +159,52 @@ fun MusicPlayerScreen(
                     )
                 }
 
-                MusicWaveProgress(
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    waveSeed = state.waveSeed,
-                    playing = state.playing,
-                    onSeek = onSeek,
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.cardContainer,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .padding(top = 12.dp),
-                )
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    ) {
+                        MusicInfo(title = state.title, subtitle = state.subtitle)
 
-                MusicControls(
-                    playing = state.playing,
-                    buffering = state.buffering,
-                    onTogglePlay = onTogglePlay,
-                    onPrevious = onPrevious,
-                    onNext = onNext,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                )
+                        MusicWaveProgress(
+                            positionMs = state.positionMs,
+                            durationMs = state.durationMs,
+                            waveSeed = state.waveSeed,
+                            playing = state.playing,
+                            onSeek = onSeek,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                        )
 
-                Spacer(Modifier.height(22.dp))
+                        MusicControls(
+                            playing = state.playing,
+                            buffering = state.buffering,
+                            onTogglePlay = onTogglePlay,
+                            onPrevious = onPrevious,
+                            onNext = onNext,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 14.dp),
+                        )
 
-                CompositionLocalProvider(LocalTopBarGlassBackdrop provides backdrop) {
-                    MusicBottomActions(
-                        playMode = state.playMode,
-                        collected = state.collected,
-                        onCyclePlayMode = onCyclePlayMode,
-                        onToggleCollect = onToggleCollect,
-                        onCast = onCast,
-                        onOpenQueue = { queueVisible = true },
-                    )
+                        MusicBottomActions(
+                            playMode = state.playMode,
+                            collected = state.collected,
+                            onCyclePlayMode = onCyclePlayMode,
+                            onToggleCollect = onToggleCollect,
+                            onCast = onCast,
+                            onOpenQueue = { queueVisible = true },
+                            modifier = Modifier.padding(top = 14.dp),
+                        )
+                    }
                 }
 
-                Spacer(Modifier.height(16.dp))
             }
 
             MusicTipOverlay(state.tip)
@@ -219,7 +214,7 @@ fun MusicPlayerScreen(
             AVBoxBottomSheet(
                 onDismissRequest = { queueVisible = false },
                 title = stringResource(R.string.music_queue),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = MaterialTheme.colorScheme.surface,
                 isScrollable = false,
             ) {
                 val queueListState = rememberLazyListState()
@@ -233,18 +228,24 @@ fun MusicPlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 420.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     itemsIndexed(state.queue) { index, name ->
                         val current = index == state.queueIndex
+                        Surface(
+                            onClick = {
+                                queueVisible = false
+                                onSelectQueue(index)
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.cardContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    queueVisible = false
-                                    onSelectQueue(index)
-                                }
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
@@ -268,6 +269,7 @@ fun MusicPlayerScreen(
                                     modifier = Modifier.size(20.dp),
                                 )
                             }
+                        }
                         }
                     }
                 }
@@ -324,6 +326,7 @@ private fun MusicBottomActions(
     onToggleCollect: () -> Unit,
     onCast: () -> Unit,
     onOpenQueue: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val modeIcon = when (playMode) {
         MusicPlayMode.SINGLE -> R.drawable.ic_repeat_one
@@ -332,12 +335,12 @@ private fun MusicBottomActions(
     }
     val segmentCount = 4
     Box(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .width(PlaybackControlsWidth)
+                .fillMaxWidth()
                 .height(66.dp)
                 .clip(CapsuleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainer)
@@ -499,10 +502,7 @@ private fun MusicCover(artwork: String, side: Dp, onSeed: (Int?) -> Unit) {
 @Composable
 private fun MusicInfo(title: String, subtitle: String) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 28.dp)
-            .padding(bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -602,7 +602,7 @@ private fun MusicWaveProgress(
         }
     }
 
-    val playedColor = MaterialTheme.colorScheme.onSurface
+    val playedColor = MaterialTheme.colorScheme.primary
     val idleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
 
     Column(modifier = modifier) {
@@ -681,15 +681,9 @@ private fun MusicWaveProgress(
 
 private val SkipButtonSize = 64.dp
 
-private val PlayButtonWidth = 84.dp
-
-private val PlayButtonHeight = 76.dp
-
 private val SkipToPlayGap = 20.dp
 
 private val PlayToSkipGap = 22.dp
-
-private val PlaybackControlsWidth = SkipButtonSize * 2 + PlayButtonWidth + SkipToPlayGap + PlayToSkipGap
 
 @Composable
 private fun MusicControls(
@@ -713,8 +707,8 @@ private fun MusicControls(
         Spacer(Modifier.width(SkipToPlayGap))
         Box(
             modifier = Modifier
-                .size(width = PlayButtonWidth, height = PlayButtonHeight)
-                .clip(PlayButtonShape)
+                .size(72.dp)
+                .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primary)
                 .clickable(onClick = onTogglePlay),
             contentAlignment = Alignment.Center,
@@ -755,7 +749,7 @@ private fun ScallopControlButton(
         modifier = Modifier
             .size(SkipButtonSize)
             .clip(ScallopIconShape)
-            .background(MaterialTheme.colorScheme.surfaceBright.copy(alpha = 0.5f))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -769,34 +763,6 @@ private fun ScallopControlButton(
 }
 
 private val CapsuleShape = RoundedCornerShape(percent = 50)
-
-private val PlayButtonShape: Shape = EggShape()
-
-private class EggShape(
-    private val topControl: Float = 0.45f,
-    private val bottomControl: Float = 0.60f,
-) : Shape {
-
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density,
-    ): Outline {
-        val w = size.width
-        val h = size.height
-        val cx = w / 2f
-        val rx = w / 2f
-        val path = Path().apply {
-            moveTo(cx, 0f)
-            cubicTo(cx + rx * topControl, 0f, cx + rx, h * 0.18f, cx + rx, h * 0.55f)
-            cubicTo(cx + rx, h * 0.85f, cx + rx * bottomControl, h, cx, h)
-            cubicTo(cx - rx * bottomControl, h, cx - rx, h * 0.85f, cx - rx, h * 0.55f)
-            cubicTo(cx - rx, h * 0.18f, cx - rx * topControl, 0f, cx, 0f)
-            close()
-        }
-        return Outline.Generic(path)
-    }
-}
 
 private val ScallopIconShape: Shape = ScallopShape()
 

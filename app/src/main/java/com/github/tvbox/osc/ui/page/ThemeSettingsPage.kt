@@ -29,11 +29,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -46,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -63,14 +61,12 @@ import com.github.tvbox.osc.ui.components.SettingsSwitchRow
 import com.github.tvbox.osc.ui.components.ThemeColorPickerSheet
 import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.ui.theme.AppThemeState
-import com.github.tvbox.osc.ui.theme.LiquidGlassState
 import com.github.tvbox.osc.ui.theme.PaletteStyles
 import com.github.tvbox.osc.ui.theme.PresetSeeds
 import com.github.tvbox.osc.ui.theme.ThemeMode
 import com.github.tvbox.osc.ui.theme.ThemeSource
 import com.github.tvbox.osc.ui.theme.filterChipColors
 import com.materialkolor.PaletteStyle
-import kotlin.math.roundToInt
 
 private const val DisabledAlpha = 0.45f
 
@@ -82,15 +78,28 @@ private const val PresetSeedNarrowColumns = 4
 
 private const val PresetSeedWideColumns = 8
 
+private fun settingsCardShape(position: SettingsCardPosition): Shape = when (position) {
+    SettingsCardPosition.SINGLE -> RoundedCornerShape(20.dp)
+    SettingsCardPosition.FIRST -> RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = 4.dp,
+        bottomEnd = 4.dp,
+    )
+    SettingsCardPosition.MIDDLE -> RoundedCornerShape(4.dp)
+    SettingsCardPosition.LAST -> RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 4.dp,
+        bottomStart = 20.dp,
+        bottomEnd = 20.dp,
+    )
+}
+
 @Composable
 fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
     val config = AppThemeState.config
     val isCustom = config.source == ThemeSource.CUSTOM
     var seedPickerOpen by remember { mutableStateOf(false) }
-    val glassConfig = LiquidGlassState.config
-    var blurValue by remember(glassConfig.blurDp) { mutableStateOf(glassConfig.blurDp) }
-    var distortionValue by remember(glassConfig.distortionDp) { mutableStateOf(glassConfig.distortionDp) }
-    var translucencyValue by remember(glassConfig.translucency) { mutableStateOf(glassConfig.translucency) }
 
     val listState = rememberScrollState()
 
@@ -112,11 +121,11 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 .verticalScroll(listState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(Modifier.height(topPad - 20.dp))
 
-            SettingsCard(SettingsCardPosition.SINGLE) {
+            SettingsCard(SettingsCardPosition.SINGLE, shape = settingsCardShape(SettingsCardPosition.SINGLE)) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -175,84 +184,8 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 }
             }
 
-            SettingsGroup(title = stringResource(R.string.theme_app_effects)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RowLeadingIcon(R.drawable.ic_theme_liquid_glass, enabled = true)
-                            Text(
-                                text = stringResource(R.string.theme_liquid_glass),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = { LiquidGlassState.restoreDefaults() }) {
-                                Text(stringResource(R.string.theme_reset))
-                            }
-                        }
-                        Text(
-                            text = stringResource(R.string.theme_liquid_glass_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsSwitchRow(
-                        title = stringResource(R.string.theme_nav_bar),
-                        checked = glassConfig.navbarEnabled,
-                        onCheckedChange = { LiquidGlassState.setNavbarEnabled(it) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsSwitchRow(
-                        title = stringResource(R.string.theme_app_controls),
-                        checked = glassConfig.controlsEnabled,
-                        onCheckedChange = { LiquidGlassState.setControlsEnabled(it) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    GlassSliderRow(
-                        title = stringResource(R.string.theme_blur),
-                        value = blurValue,
-                        valueRange = LiquidGlassState.BLUR_RANGE,
-                        onValueChange = { blurValue = it },
-                        onValueChangeFinished = { LiquidGlassState.setBlurDp(blurValue) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    GlassSliderRow(
-                        title = stringResource(R.string.theme_distortion),
-                        value = distortionValue,
-                        valueRange = LiquidGlassState.DISTORTION_RANGE,
-                        onValueChange = { distortionValue = it },
-                        onValueChangeFinished = { LiquidGlassState.setDistortionDp(distortionValue) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    GlassSliderRow(
-                        title = stringResource(R.string.theme_translucency),
-                        value = translucencyValue,
-                        valueRange = LiquidGlassState.TRANSLUCENCY_RANGE,
-                        onValueChange = { translucencyValue = it },
-                        onValueChangeFinished = { LiquidGlassState.setTranslucency(translucencyValue) },
-                        valueText = "${(translucencyValue * 100f).roundToInt()}%",
-                    )
-                }
-                SettingsCard(SettingsCardPosition.LAST) {
-                    SettingsSwitchRow(
-                        title = stringResource(R.string.theme_dispersion),
-                        checked = glassConfig.dispersion,
-                        onCheckedChange = { LiquidGlassState.setDispersion(it) },
-                    )
-                }
-            }
 
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -276,6 +209,7 @@ private fun ThemeCard(
 ) {
     SettingsCard(
         position = position,
+        shape = settingsCardShape(position),
         modifier = Modifier.then(if (enabled) Modifier else Modifier.alpha(DisabledAlpha)),
     ) {
         Column(
@@ -305,59 +239,6 @@ private fun CustomThemeSwitchRow(checked: Boolean, onCheckedChange: (Boolean) ->
         )
         Spacer(Modifier.width(16.dp))
         SettingsSwitch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun GlassSliderRow(
-    title: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
-    onValueChangeFinished: () -> Unit,
-    valueText: String = value.roundToInt().toString(),
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(16.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ) {
-                Text(
-                    text = valueText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            onValueChangeFinished = onValueChangeFinished,
-            valueRange = valueRange,
-            steps = 0,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                disabledThumbColor = MaterialTheme.colorScheme.outline,
-                disabledActiveTrackColor = MaterialTheme.colorScheme.outline,
-                disabledInactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-            ),
-        )
     }
 }
 

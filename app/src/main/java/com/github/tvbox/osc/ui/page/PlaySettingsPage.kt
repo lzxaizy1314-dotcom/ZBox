@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,23 @@ import com.github.tvbox.osc.player.AppPlayerView
 
 private const val DecodeHard = "硬解码" // i18n: keep
 private const val DecodeSoft = "软解码" // i18n: keep
+
+private fun settingsCardShape(position: SettingsCardPosition): Shape = when (position) {
+    SettingsCardPosition.SINGLE -> RoundedCornerShape(20.dp)
+    SettingsCardPosition.FIRST -> RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = 4.dp,
+        bottomEnd = 4.dp,
+    )
+    SettingsCardPosition.MIDDLE -> RoundedCornerShape(4.dp)
+    SettingsCardPosition.LAST -> RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 4.dp,
+        bottomStart = 20.dp,
+        bottomEnd = 20.dp,
+    )
+}
 
 @Composable
 fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
@@ -76,7 +95,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
             val playerTypes = PlayerHelper.getExistPlayerTypes().sortedDescending()
             val currentPlayType = if (playerTypes.contains(state.playType)) state.playType else 2
             SettingsGroup(title = stringResource(R.string.settings_group_play_picture)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsOptionMenuRow(
                         title = stringResource(R.string.settings_play_kernel),
                         leadingIconRes = R.drawable.ic_play_kernel,
@@ -86,7 +105,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onSelect = { idx -> vm.put(HawkConfig.PLAY_TYPE, playerTypes[idx]) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsOptionMenuRow(
                         title = stringResource(R.string.settings_play_render),
                         leadingIconRes = R.drawable.ic_play_render,
@@ -100,7 +119,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     val scales = listOf(
                         AppPlayerView.SCREEN_SCALE_DEFAULT to stringResource(R.string.common_default),
                         AppPlayerView.SCREEN_SCALE_16_9 to "16:9",
@@ -118,7 +137,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onSelect = { idx -> vm.put(HawkConfig.PLAY_SCALE, scales[idx].first) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     val codec = state.exoDecode
                     val decodeLabels = listOf(
                         stringResource(R.string.player_decode_hard),
@@ -138,7 +157,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onSelect = { idx -> vm.put(HawkConfig.EXO_DECODE, if (idx == 1) DecodeSoft else DecodeHard) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     val tiers = Anime4kTier.entries
                     val labels = tiers.map { stringResource(it.labelRes) }
                     val selected = tiers.indexOf(state.anime4kTier).coerceAtLeast(0)
@@ -154,10 +173,10 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(16.dp))
 
             SettingsGroup(title = stringResource(R.string.settings_group_play_behavior)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_play_kernel_prewarm),
                         leadingIconRes = R.drawable.ic_play_prewarm,
@@ -173,7 +192,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_play_tunnel),
                         leadingIconRes = R.drawable.ic_play_tunnel,
@@ -184,7 +203,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_play_prefer_aac),
                         leadingIconRes = R.drawable.ic_play_aac,
@@ -192,7 +211,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onCheckedChange = { vm.put(HawkConfig.PLAY_PREFER_AAC, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_music_page),
                         leadingIconRes = R.drawable.ic_music_page,
@@ -206,10 +225,10 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(16.dp))
 
             SettingsGroup(title = stringResource(R.string.settings_group_preload_cache)) {
-                SettingsCard(SettingsCardPosition.FIRST) {
+                SettingsCard(SettingsCardPosition.FIRST, shape = settingsCardShape(SettingsCardPosition.FIRST)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.preload_next_episode),
                         leadingIconRes = R.drawable.ic_preload_next,
@@ -218,7 +237,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onCheckedChange = { vm.put(HawkConfig.PRELOAD_NEXT_EPISODE, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSliderRow(
                         title = stringResource(R.string.preload_duration),
                         leadingIconRes = R.drawable.ic_preload_duration,
@@ -234,7 +253,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         },
                     )
                 }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
+                SettingsCard(SettingsCardPosition.MIDDLE, shape = settingsCardShape(SettingsCardPosition.MIDDLE)) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.preload_play_cache),
                         leadingIconRes = R.drawable.ic_play_cache,
@@ -243,7 +262,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onCheckedChange = { vm.put(HawkConfig.PLAY_CACHE, it) },
                     )
                 }
-                SettingsCard(SettingsCardPosition.LAST) {
+                SettingsCard(SettingsCardPosition.LAST, shape = settingsCardShape(SettingsCardPosition.LAST)) {
                     SettingsSliderRow(
                         title = stringResource(R.string.preload_cache_size),
                         leadingIconRes = R.drawable.ic_cache_size,
@@ -261,7 +280,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                 }
             }
 
-            Spacer(Modifier.height(64.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 
