@@ -254,12 +254,12 @@ private fun MainContent() {
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = MaterialTheme.colorScheme.background,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     if (surfaceNavVisible && !railMode) {
                         ShortNavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            containerColor = MaterialTheme.colorScheme.surfaceBright,
                         ) {
                             AppTab.entries.forEachIndexed { index, tab ->
                                 if (!navLiveHidden && index == NavMetrics.actionSlotFor(AppTab.entries.size)) {
@@ -381,7 +381,7 @@ private fun MainContent() {
                         .align(Alignment.CenterStart)
                         .fillMaxHeight()
                         .windowInsetsPadding(WindowInsets.systemBars),
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    containerColor = MaterialTheme.colorScheme.surfaceBright,
                 ) {
                     AppTab.entries.forEachIndexed { index, tab ->
                         if (!navLiveHidden && index == NavMetrics.actionSlotFor(AppTab.entries.size)) {
