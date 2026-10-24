@@ -147,3 +147,61 @@ internal fun isRatingNote(note: String?): Boolean {
     if (n.toFloatOrNull() != null) return true
     return ratingBadgeText(n) != n
 }
+
+// ZBox 二开 · 杂志风横卡（16:9 图 + 卡内标题/信息行），首页分区横排使用。
+@Composable
+fun VodCardLandscape(
+    video: Movie.Video,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PressableCard(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceBright),
+        ) {
+            Box(modifier = Modifier.aspectRatio(16f / 9f)) {
+                VodPoster(video.name, video.pic, year = video.year, sourceKey = video.sourceKey, tmdbCacheOnly = true, altName = video.en)
+                RatingBadge(video, Modifier.align(Alignment.TopEnd))
+            }
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text(
+                    text = video.name ?: "",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val meta = buildString {
+                    if (video.year > 0) append(video.year)
+                    if (!video.area.isNullOrBlank()) {
+                        if (isNotEmpty()) append(" · ")
+                        append(video.area)
+                    }
+                    val note = video.note?.trim().orEmpty()
+                    if (note.isNotEmpty() && !isRatingNote(note)) {
+                        if (isNotEmpty()) append(" · ")
+                        append(note)
+                    }
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
