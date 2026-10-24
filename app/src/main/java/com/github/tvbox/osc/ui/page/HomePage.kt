@@ -91,6 +91,7 @@ import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.ui.components.AVBoxOptionMenuAction
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.HeroSpotlight
+import com.github.tvbox.osc.ui.components.VodCardLandscape
 import com.github.tvbox.osc.ui.components.HomeBackdrop
 import com.github.tvbox.osc.ui.components.HomeHeroBackdrop
 import com.github.tvbox.osc.ui.components.LoadState
@@ -682,13 +683,13 @@ private fun PartitionSection(
                         .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    repeat(3) {
+                    repeat(2) {
                         SkeletonBox(
                             modifier = Modifier
                                 .weight(1f)
-                                .aspectRatio(2f / 3f)
-                                .clip(RoundedCornerShape(16.dp)),
-                            shape = RoundedCornerShape(16.dp),
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(20.dp)),
+                            shape = RoundedCornerShape(20.dp),
                         )
                     }
                 }
@@ -724,13 +725,16 @@ private fun PartitionSection(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                itemsIndexed(videos) { index, video ->
-                    VodCard(
+                itemsIndexed(
+                        videos,
+                        key = { index, video -> video.id?.takeIf { it.isNotBlank() } ?: "${video.name ?: ""}_$index" },
+                    ) { _, video ->
+                    // ZBox 二开：首页分区改杂志横卡（16:9），不再用竖海报卡
+                    VodCardLandscape(
                         video = video,
                         onClick = { onCardClick(video) },
                         onLongClick = { onCardLongClick(video) },
-                        modifier = Modifier.width(cardWidth),
-                        style = VodCardStyle.Stacked,
+                        modifier = Modifier.width(248.dp),
                     )
                 }
                 item(key = "more_$title") {
