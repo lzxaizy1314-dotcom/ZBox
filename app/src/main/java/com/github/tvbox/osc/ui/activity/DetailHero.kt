@@ -3,6 +3,7 @@ package com.github.tvbox.osc.ui.activity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -353,26 +356,8 @@ internal fun DetailHero(
                     fallbackColor = circleColor,
                 )
             }
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(
-                        start = HeroContentHorizontalPadding,
-                        end = HeroContentHorizontalPadding,
-                        bottom = HeroLogoBottomPadding,
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                DetailHeroTitle(
-                    title = title,
-                    altTitle = altTitle,
-                    year = year,
-                    widthFraction = HeroLogoWidthFraction,
-                    color = captionColor,
-                )
-            }
         }
+        // ZBox 二开（详情页必修项）：头图不再压标题，标题只出现在下方白卡里，避免被卡片截断/重复。
         DetailHeroInfoBlock(
             ratingText = ratingText,
             metaTail = metaTail,
@@ -385,12 +370,11 @@ internal fun DetailHero(
             onCast = onCast,
             onFollow = onFollow,
             captionColor = captionColor,
-            modifier = Modifier.padding(
-                start = HeroContentHorizontalPadding,
-                end = HeroContentHorizontalPadding,
-                top = HeroContentTopPadding,
-                bottom = HeroContentBottomPadding,
-            ),
+            title = title,
+            inCard = true,
+            modifier = Modifier
+                .padding(horizontal = HeroContentHorizontalPadding)
+                .offset(y = (-20).dp),
         )
     }
 }
@@ -447,17 +431,39 @@ private fun DetailHeroInfoBlock(
     onFollow: () -> Unit,
     captionColor: Color,
     flat: Boolean = false,
+    title: String? = null,
+    inCard: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
-            .clipToBounds(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .clipToBounds()
+            .then(
+                if (inCard) {
+                    // ZBox 二开：信息区做成上浮白卡（圆角 24，卡内左对齐，留足内边距）
+                    Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(MaterialTheme.colorScheme.surfaceBright)
+                        .padding(horizontal = 20.dp, vertical = 18.dp)
+                } else {
+                    Modifier
+                },
+            ),
+        horizontalAlignment = if (inCard) Alignment.Start else Alignment.CenterHorizontally,
     ) {
+        if (title != null) {
+            DetailHeroTitleText(title, captionColor, textAlign = TextAlign.Start)
+        }
         if (ratingText != null || metaTail.isNotEmpty()) {
-            DetailHeroRatingLine(rating = ratingText, tail = metaTail, color = captionColor)
+            DetailHeroRatingLine(
+                rating = ratingText,
+                tail = metaTail,
+                color = captionColor,
+                alignStart = inCard,
+                modifier = if (inCard) Modifier.padding(top = 6.dp) else Modifier,
+            )
         }
         if (!descriptionText.isNullOrEmpty()) {
             DetailHeroDescription(
@@ -473,8 +479,14 @@ private fun DetailHeroInfoBlock(
             onClick = onPlay,
             modifier = Modifier
                 .padding(top = HeroActionSpacing)
-                .widthIn(min = HeroPlayCapsuleMinWidth)
-                .height(HeroPlayCapsuleHeight)
+                // ZBox 二开必修项：白卡内播放按钮独占整行、全宽、固定 48dp 高，文字单行不换行
+                .then(
+                    if (inCard) {
+                        Modifier.fillMaxWidth().height(48.dp)
+                    } else {
+                        Modifier.widthIn(min = HeroPlayCapsuleMinWidth).height(HeroPlayCapsuleHeight)
+                    },
+                )
                 .pressScale(playInteraction, PLAYER_PRESS_SCALE),
             shapes = PressMorphButtonShapes,
             contentPadding = PaddingValues(horizontal = HeroPlayCapsuleHorizontalPadding),
@@ -499,6 +511,7 @@ private fun DetailHeroInfoBlock(
             onMusic = onMusic,
             onCast = onCast,
             onFollow = onFollow,
+            cardStyle = inCard,
             modifier = Modifier.padding(top = HeroButtonRowSpacing),
         )
     }
@@ -510,6 +523,7 @@ internal fun DetailActionRow(
     onMusic: () -> Unit,
     onCast: () -> Unit,
     onFollow: () -> Unit,
+    cardStyle: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -522,18 +536,21 @@ internal fun DetailActionRow(
             contentDescription = stringResource(R.string.detail_music_player),
             selected = false,
             onClick = onMusic,
+            cardStyle = cardStyle,
         )
         HeroCircleButton(
             iconRes = R.drawable.ic_detail_cast,
             contentDescription = stringResource(R.string.common_cast),
             selected = false,
             onClick = onCast,
+            cardStyle = cardStyle,
         )
         HeroCircleButton(
             iconRes = R.drawable.ic_tab_following,
             contentDescription = stringResource(R.string.tab_following),
             selected = followed,
             onClick = onFollow,
+            cardStyle = cardStyle,
         )
     }
 }
@@ -544,12 +561,23 @@ private fun HeroCircleButton(
     contentDescription: String,
     selected: Boolean,
     onClick: () -> Unit,
+    cardStyle: Boolean = false,
 ) {
     Box(
         modifier = Modifier
             .size(HeroCircleButtonSize)
             .playerPressEffect(onTap = onClick)
-            .detailGlass(CircleShape),
+            .then(
+                if (cardStyle) {
+                    // ZBox 二开：白卡内改用浅纸底+描边的圆按钮，不再用玻璃效果
+                    Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                } else {
+                    Modifier.detailGlass(CircleShape)
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -601,13 +629,17 @@ private fun DetailHeroTitle(title: String, altTitle: String?, year: Int, widthFr
 }
 
 @Composable
-private fun DetailHeroTitleText(title: String, color: Color) {
+private fun DetailHeroTitleText(
+    title: String,
+    color: Color,
+    textAlign: TextAlign = TextAlign.Center,
+) {
     Text(
         text = title,
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight(800),
         color = color,
-        textAlign = TextAlign.Center,
+        textAlign = textAlign,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth(),
@@ -615,10 +647,16 @@ private fun DetailHeroTitleText(title: String, color: Color) {
 }
 
 @Composable
-private fun DetailHeroRatingLine(rating: String?, tail: String, color: Color) {
+private fun DetailHeroRatingLine(
+    rating: String?,
+    tail: String,
+    color: Color,
+    alignStart: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (alignStart) Arrangement.Start else Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (rating != null) {
