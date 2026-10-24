@@ -226,7 +226,6 @@ internal fun DetailHero(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    val glassBackdrop = rememberLayerBackdrop(onDraw = { drawContent() })
     val circleColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = HeroCircleAlpha)
     val detail = rememberTmdbDetail(title, altTitle, year)
     val ratingText = detail?.rating
@@ -330,7 +329,7 @@ internal fun DetailHero(
                         )
                     },
             ) {
-                Box(modifier = Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     DetailHeroPoster(
                         title = title,
                         altTitle = altTitle,
@@ -348,14 +347,13 @@ internal fun DetailHero(
                     )
                 }
             }
-            CompositionLocalProvider(LocalTopBarGlassBackdrop provides glassBackdrop) {
-                DetailHeroTopActions(
-                    collected = collected,
-                    onBack = onBack,
-                    onCollect = onCollect,
-                    fallbackColor = circleColor,
-                )
-            }
+            // ZBox 二开（性能）：详情页顶栏不再录制整屏 backdrop 做玻璃效果，按钮走实色半透明底
+            DetailHeroTopActions(
+                collected = collected,
+                onBack = onBack,
+                onCollect = onCollect,
+                fallbackColor = circleColor,
+            )
         }
         // ZBox 二开（详情页必修项）：头图不再压标题，标题只出现在下方白卡里，避免被卡片截断/重复。
         DetailHeroInfoBlock(
