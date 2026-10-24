@@ -28,8 +28,9 @@ object AppThemeState {
     val config: ThemeConfig get() = current
 
     private fun load(): ThemeConfig = ThemeConfig(
-        source = KV.get(HawkConfig.THEME_SOURCE, ThemeSource.SYSTEM),
-        mode = KV.get(HawkConfig.THEME_MODE, ThemeMode.FOLLOW_SYSTEM),
+        // ZBox 二开：默认走自定义暖纸主题（暖橙种子 + 浅色），用户仍可在主题设置里改回。
+        source = KV.get(HawkConfig.THEME_SOURCE, ThemeSource.CUSTOM),
+        mode = KV.get(HawkConfig.THEME_MODE, ThemeMode.LIGHT),
         seedArgb = KV.get(HawkConfig.THEME_SEED, DefaultSeedArgb),
         style = runCatching { PaletteStyle.valueOf(KV.get(HawkConfig.THEME_PALETTE_STYLE, "")) }
             .getOrDefault(DefaultPaletteStyle),
@@ -78,7 +79,11 @@ object AppThemeState {
     fun windowSurfaceArgb(context: Context): Int {
         val dark = isDark(isSystemDark(context))
         val scheme = resolveScheme(context, current, dark)
-        val resolved = if (dark && current.pureBlack) scheme.toPureBlack() else scheme
+        val resolved = when {
+            dark && current.pureBlack -> scheme.toPureBlack()
+            !dark -> scheme.toWarmPaper()
+            else -> scheme
+        }
         return resolved.surface.toArgb()
     }
 
