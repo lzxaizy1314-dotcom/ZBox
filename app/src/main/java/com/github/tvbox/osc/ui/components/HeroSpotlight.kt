@@ -121,7 +121,7 @@ fun HeroSpotlight(
     // ZBox 二开：Hero 改杂志封面卡——两侧留边、圆角 24，不再满幅出血
     Box(
         modifier = modifier
-            .padding(horizontal = 16.dp, top = 8.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
             .fillMaxWidth()
             .height(heroHeight)
             .clip(RoundedCornerShape(24.dp)),
