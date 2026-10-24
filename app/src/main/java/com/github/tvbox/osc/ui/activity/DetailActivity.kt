@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Looper
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
@@ -12,7 +14,6 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,6 +25,7 @@ import com.github.tvbox.osc.ui.components.SheetHostScaffold
 import com.github.tvbox.osc.player.PageHost
 import com.github.tvbox.osc.player.PlaybackController
 import com.github.tvbox.osc.player.PlaybackService
+import com.github.tvbox.osc.player.engine.MediaSources
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
@@ -31,10 +33,11 @@ import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MusicSettings
 import com.github.tvbox.osc.util.PermissionHelper
+import com.github.tvbox.osc.util.SpiderStorageNotice
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
 private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
-private const val VIDEO_SIZE_WATCH_TIMEOUT_MS = 10000L
 private const val CAST_URL_POLL_MS = 250L
 private const val CAST_URL_WAIT_ATTEMPTS = 20
 
@@ -46,17 +49,10 @@ class DetailActivity : BaseActivity(), PageHost {
 
     var playContainer: PlayContainer? by mutableStateOf<PlayContainer?>(null)
         private set
-    private var fullScreen = false
+    private var appliedFullscreen = false
     private var pendingEpisodeSync = false
     private var videoSizeWatchArmed = false
     private var castWaitAttempts = 0
-
-    private val videoSizeTimeoutRunnable = Runnable {
-        if (!videoSizeWatchArmed) return@Runnable
-        LOG.i("echo-player detail size timeout, keep portrait placeholder")
-        videoSizeWatchArmed = false
-        playContainer?.setVideoSizeReadyListener(null)
-    }
 
     private val castWaitRunnable = object : Runnable {
         override fun run() {
@@ -84,6 +80,7 @@ class DetailActivity : BaseActivity(), PageHost {
 
     override fun launchLocalSubtitlePicker() {
         try {
+            SpiderStorageNotice.suppress()
             localSubtitlePicker.launch(arrayOf("*/*"))
         } catch (e: Exception) {
             Toast.makeText(this, getString(R.string.toast_file_picker_unavailable), Toast.LENGTH_SHORT).show()
@@ -93,16 +90,24 @@ class DetailActivity : BaseActivity(), PageHost {
     override fun shouldRefreshAutoSize(): Boolean = true
 
     override fun hideSysBar() {
-        if (fullScreen) super.hideSysBar()
+        if (vm.fullScreen.value) super.hideSysBar()
     }
 
-    override fun keepStatusBarHidden(): Boolean = fullScreen
+    override fun keepStatusBarHidden(): Boolean = vm.fullScreen.value
+
+    private var statusBarIconsLight = false
+
+    fun setStatusBarIconsLight(light: Boolean) {
+        if (statusBarIconsLight == light) return
+        statusBarIconsLight = light
+        applyStatusBarAppearance()
+    }
 
     private fun applyStatusBarAppearance() {
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
+            isAppearanceLightStatusBars = statusBarIconsLight
             isAppearanceLightNavigationBars = !AppThemeState.isDark(systemDark)
         }
     }
@@ -119,12 +124,13 @@ class DetailActivity : BaseActivity(), PageHost {
                     return
                 }
                 if (vm.exitingFullscreen.value) return
-                if (fullScreen) {
+                if (vm.fullScreen.value) {
                     if (container != null && container.onBackPressed()) return
                     if (DetailPlaybackPolicy.plan(DetailPlaybackEntry.ExitFullscreen).stopPlayback) {
                         container?.stopForExitFullscreen()
                     }
                     vm.onFullScreenToggleRequested(false, playbackFacts())
+                    container?.hideTipOnUiThread()
                 } else {
                     if (vm.backToPreviousTarget()) {
                         pendingEpisodeSync = false
@@ -151,6 +157,7 @@ class DetailActivity : BaseActivity(), PageHost {
         setIntent(intent)
         pendingEpisodeSync = false
         vm.onFullScreenToggleRequested(false, playbackFacts())
+        playContainer?.hideTipOnUiThread()
         vm.pushTargetFromIntent(intent)
     }
 
@@ -163,6 +170,21 @@ class DetailActivity : BaseActivity(), PageHost {
             }
         }
         return requireNotNull(playContainer) { "play container not created" }
+    }
+
+    fun preheatWebView() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread { preheatWebView() }
+            return
+        }
+        if (!webViewPreheated.compareAndSet(false, true)) return
+        val startedAt = System.nanoTime()
+        try {
+            WebView(this).destroy()
+            LOG.i("echo-webview-prewarm: " + (System.nanoTime() - startedAt) / 1_000_000L + "ms")
+        } catch (th: Throwable) {
+            LOG.e("DetailActivity", th)
+        }
     }
 
     fun playbackFacts(): DetailPlaybackFacts = DetailPlaybackFacts(
@@ -283,12 +305,22 @@ class DetailActivity : BaseActivity(), PageHost {
             Toast.makeText(this, getString(R.string.detail_content_not_ready), Toast.LENGTH_SHORT).show()
             return
         }
+        if (isIsoPlayback()) {
+            Toast.makeText(this, getString(R.string.player_iso_music_unsupported), Toast.LENGTH_SHORT).show()
+            return
+        }
         // 先按纯音频启动，避免详情页这一帧就把视频解码器建起来（交接后无法回收）。
         prepareAudioOnlyForMusicPage()
         ensurePlaying()
         if (!handOffToMusicPlayer()) {
             Toast.makeText(this, getString(R.string.detail_no_playable_content), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun isIsoPlayback(): Boolean {
+        val controller = PlaybackService.peek()?.controller() ?: return false
+        if (!engineOwnsDetailContent()) return false
+        return MediaSources.isoHeaders(controller.webHeaderMap()) || controller.isIsoEscalated()
     }
 
     private fun prepareAudioOnlyForMusicPage() {
@@ -300,7 +332,10 @@ class DetailActivity : BaseActivity(), PageHost {
     }
 
     fun handOffToMusicPlayer(): Boolean {
-        val container = playContainer ?: return false
+        val container = playContainer ?: run {
+            restoreVideoAfterMusicPage()
+            return false
+        }
         val playing = PlaybackService.peek()?.controller()?.vod()
         if (playing == null) {
             restoreVideoAfterMusicPage()
@@ -325,18 +360,12 @@ class DetailActivity : BaseActivity(), PageHost {
     private fun syncEpisodeAfterMusicPage() {
         if (!pendingEpisodeSync) return
         pendingEpisodeSync = false
-        val playing = PlaybackService.peek()?.controller()?.vod() ?: return
-        val info = vm.vodInfo ?: return
-        if (playing.id != info.id) return
-        if (playing.playFlag == info.playFlag && playing.playIndex == info.playIndex) return
-        info.playFlag = playing.playFlag
-        info.playIndex = playing.playIndex
-        vm.bumpRevision()
+        vm.syncEpisodeAfterMusicReturn()
     }
 
     fun applyFullscreen(full: Boolean) {
-        if (fullScreen == full) return
-        fullScreen = full
+        if (appliedFullscreen == full) return
+        appliedFullscreen = full
         requestedOrientation = orientationPolicyValue()
         if (full) {
             armVideoSizeWatch()
@@ -344,7 +373,6 @@ class DetailActivity : BaseActivity(), PageHost {
         } else {
             videoSizeWatchArmed = false
             playContainer?.setVideoSizeReadyListener(null)
-            window.decorView.removeCallbacks(videoSizeTimeoutRunnable)
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.show(WindowInsetsCompat.Type.navigationBars())
             applyHideStatusBarPref()
@@ -365,19 +393,17 @@ class DetailActivity : BaseActivity(), PageHost {
         if (videoSizeWatchArmed) return
         videoSizeWatchArmed = true
         container.setVideoSizeReadyListener { portraitVideo -> onVideoSizeReady(portraitVideo) }
-        window.decorView.postDelayed(videoSizeTimeoutRunnable, VIDEO_SIZE_WATCH_TIMEOUT_MS)
     }
 
     private fun onVideoSizeReady(portraitVideo: Boolean) {
         if (!videoSizeWatchArmed) return
         videoSizeWatchArmed = false
-        window.decorView.removeCallbacks(videoSizeTimeoutRunnable)
         playContainer?.setVideoSizeReadyListener(null)
         applyVideoOrientation(portraitVideo)
     }
 
     private fun applyVideoOrientation(portraitVideo: Boolean) {
-        if (!fullScreen || portraitVideo) return
+        if (!vm.fullScreen.value || portraitVideo) return
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     }
 
@@ -388,7 +414,7 @@ class DetailActivity : BaseActivity(), PageHost {
 
     fun settleRotationAfterExit() {
         if (!vm.rotating.value) return
-        vm.rotating.value = false
+        vm.settleRotation()
         syncFullBoxSideEffects()
     }
 
@@ -398,7 +424,7 @@ class DetailActivity : BaseActivity(), PageHost {
 
     fun isFullBox(): Boolean {
         val landNow = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        return DetailFullScreenFrame.playerFullScreen(vm.rotating.value, fullScreen, landNow)
+        return DetailFullScreenFrame.playerFullScreen(vm.rotating.value, vm.fullScreen.value, landNow)
     }
 
     private fun syncFullBoxSideEffects() {
@@ -425,10 +451,13 @@ class DetailActivity : BaseActivity(), PageHost {
     }
 
     override fun onDestroy() {
-        window.decorView.removeCallbacks(videoSizeTimeoutRunnable)
         window.decorView.removeCallbacks(castWaitRunnable)
         releasePlayContainer()
         vm.destroyEngine()
         super.onDestroy()
+    }
+
+    companion object {
+        private val webViewPreheated = AtomicBoolean(false)
     }
 }

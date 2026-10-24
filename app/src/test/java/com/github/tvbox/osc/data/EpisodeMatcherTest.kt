@@ -11,12 +11,12 @@ class EpisodeMatcherTest {
     private fun seriesList(vararg names: String): List<VodInfo.VodSeries> =
         names.map { series(it) }
 
-    private fun vod(flagNames: List<String>, vararg mapFlags: String): VodInfo = VodInfo().apply {
-        seriesFlags = ArrayList(flagNames.map { VodInfo.VodSeriesFlag(it) })
+    private fun vod(flagNames: List<String>, vararg mapFlags: String): VodInfo = VodInfo(
+        seriesFlags = ArrayList(flagNames.map { VodInfo.VodSeriesFlag(it) }),
         seriesMap = LinkedHashMap<String?, MutableList<VodInfo.VodSeries>>().apply {
             for (flag in mapFlags) put(flag, seriesList("第1集").toMutableList())
-        }
-    }
+        },
+    )
 
     @Test
     fun episodeNumber_fromCommonNameForms() {
@@ -33,6 +33,8 @@ class EpisodeMatcherTest {
         assertEquals(8, EpisodeMatcher.extractEpisodeNumber("影片名 (2024) 第08集"))
         assertEquals(1000, EpisodeMatcher.extractEpisodeNumber("名侦探柯南 2024 第1000集"))
         assertEquals(2, EpisodeMatcher.extractEpisodeNumber("S01E02"))
+        assertEquals(90, EpisodeMatcher.extractEpisodeNumber("[DZAUU]90_4K.mp4[677.96MB]"))
+        assertEquals(93, EpisodeMatcher.extractEpisodeNumber("[DZAUU]93_4K.mkv"))
     }
 
     @Test

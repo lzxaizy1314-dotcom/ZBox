@@ -13,6 +13,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoFrameProcessor
 import androidx.media3.common.VideoSize
@@ -22,6 +23,7 @@ import androidx.media3.common.util.Clock
 import androidx.media3.common.util.Size
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -32,12 +34,19 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
-import com.github.tvbox.osc.player.PlayerCodecStats
+import com.github.tvbox.osc.player.PlayerDecodeKind
+import com.github.tvbox.osc.player.RetryPolicy
+import com.github.tvbox.osc.player.SlowOpenSignal
 import com.github.tvbox.osc.player.TrackInfo
 import com.github.tvbox.osc.player.TrackInfoBean
+import com.github.tvbox.osc.player.VideoCodecObserver
 import com.github.tvbox.osc.player.effect.PictureEffects
 import com.github.tvbox.osc.player.effect.RedrawPolicy
 import com.github.tvbox.osc.player.effect.ReplayableCacheVideoRenderer
+import com.github.tvbox.osc.player.engine.iso.IsoPlaylistState
+import com.github.tvbox.osc.player.engine.iso.IsoSeekAction
+import com.github.tvbox.osc.player.engine.iso.IsoSessionSignal
+import com.github.tvbox.osc.player.engine.iso.isoSeekAction
 import com.github.tvbox.osc.player.state.KernelPlayback
 import com.github.tvbox.osc.util.LOG
 import okhttp3.OkHttpClient
@@ -55,6 +64,7 @@ data class PlayerEngineConfig(
     val okHttpClient: OkHttpClient? = null,
     val preloadTargetChecker: (url: String, headers: Map<String, String>?) -> Boolean = { _, _ -> false },
     val playCacheEnabled: () -> Boolean = { false },
+    val videoCodecObserver: VideoCodecObserver? = null,
 ) {
     companion object {
         const val DEFAULT_BUFFER_TIMES = 3
@@ -94,6 +104,11 @@ class PlayerEngine(
     private var currentHeaders: Map<String, String>? = null
     private var retriedAsHls = false
 
+    private var retriedAsBdav = false
+
+    @Volatile
+    private var isoSession = false
+
     private var useDiskCache = false
 
     @Volatile
@@ -101,6 +116,9 @@ class PlayerEngine(
 
     @Volatile
     private var startPositionApplied = false
+
+    @Volatile
+    private var isoSourceBuilt = false
 
     @Volatile
     private var videoEffectsOpen = false
@@ -117,7 +135,6 @@ class PlayerEngine(
     private var pendingOutputHeight = 0
     private var outputSurfacePresent = false
     private var redrawScheduled = false
-    private var audioOnlyRequested = false
     private var videoOutputInvalid = false
     private var videoRenderersDisabled = false
 
@@ -138,7 +155,22 @@ class PlayerEngine(
     @Volatile
     private var lastErrorKindValue = ERROR_KIND_UNKNOWN
 
+    @Volatile
+    private var lastErrorTrackKindValue = ERROR_TRACK_UNKNOWN
+
+    private var lastErrorFormatIdValue: String? = null
+
+    private var lastAudioFormatLogged: String? = null
+
     private var lastErrorCodeNameValue: String? = null
+
+    private var lastErrorHttpStatusValue = 0
+
+    @Volatile
+    private var lastErrorExceedsDecodeCapabilityValue = false
+
+    @Volatile
+    private var lastErrorTenBitValue = false
 
     @Volatile
     private var droppedFramesTotal = 0L
@@ -168,6 +200,7 @@ class PlayerEngine(
         override fun onTracksChanged(tracks: Tracks) {
             trackSelection.loadDefaultSubtitleTrackBeforeReady()
             reportVideoSizeFromTracks(tracks)
+            reportAudioFormat(tracks)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -238,6 +271,7 @@ class PlayerEngine(
             videoRenderers,
             videoRendererIndices,
             config.dynamicScheduling,
+            config.videoCodecObserver,
         )
         factory.setEnableDecoderFallback(true)
         factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -292,11 +326,18 @@ class PlayerEngine(
         }
         currentPlayPath = playPath
         currentHeaders = copyHeaders(headers)
+        isoSession = MediaSources.isoHeaders(currentHeaders)
+        isoSourceBuilt = false
+        if (!isoSession && SourcePolicy.isLocalProxyUrl(playPath)) SlowOpenSignal.arm() else SlowOpenSignal.disarm()
         resetSessionFlags()
         trackSelection.resetForNewContent()
         resetPlaybackStats()
+        if (isoSession) {
+            mediaSource = null
+            LOG.i("echo-iso-play-skip-cache: $playPath")
+            return
+        }
         mediaSource = mediaSources.getMediaSource(playPath, copyHeaders(currentHeaders))
-
         val preloadTarget = config.preloadTargetChecker(playPath, headers)
         val playCacheWanted = useDiskCache && config.playCacheEnabled()
         val mode = SourcePolicy.resolveCacheMode(
@@ -324,17 +365,23 @@ class PlayerEngine(
 
     private fun resetSessionFlags() {
         retriedAsHls = false
+        retriedAsBdav = false
         videoEffectsOpen = false
         pictureHdrSource = false
         lastErrorKindValue = ERROR_KIND_UNKNOWN
+        lastErrorTrackKindValue = ERROR_TRACK_UNKNOWN
+        lastErrorFormatIdValue = null
+        lastAudioFormatLogged = null
         lastErrorCodeNameValue = null
+        lastErrorHttpStatusValue = 0
+        lastErrorExceedsDecodeCapabilityValue = false
+        lastErrorTenBitValue = false
     }
 
     private fun resetPlaybackStats() {
         droppedFramesTotal = 0
         rebufferCountTotal = 0
         playbackStarted = false
-        PlayerCodecStats.videoDecoderName = ""
         renderedFrameCount.set(0)
         frameRateWindowStartMs = 0
         measuredFrameRateValue = 0f
@@ -343,6 +390,7 @@ class PlayerEngine(
     fun setStartPosition(positionMs: Long) {
         startPositionMs = maxOf(0L, positionMs)
         startPositionApplied = false
+        isoSourceBuilt = false
     }
 
     val isStartPositionApplied: Boolean
@@ -350,9 +398,32 @@ class PlayerEngine(
 
     fun prepare(): Boolean {
         val exo = internalPlayer ?: return false
-        val source = mediaSource ?: return false
+        val source: MediaSource
+        var start = startPositionMs
+        if (isoSession && !retriedAsBdav && (!isoSourceBuilt || mediaSource == null)) {
+            val path = currentPlayPath
+            val headers = currentHeaders
+            if (path == null || headers == null) return false
+            val seekMs = if (ISO_SEEK_RAP_ENABLED) startPositionMs else 0L
+            if (seekMs == 0L && startPositionMs > 0L) {
+                LOG.i("echo-iso-start-zero: drop resume $startPositionMs")
+            }
+            val built = try {
+                mediaSources.getIsoMediaSource(path, copyHeaders(headers), seekMs)
+            } catch (e: Exception) {
+                LOG.e("echo-iso-prepare-fail:$seekMs ${e.message}")
+                return false
+            }
+            mediaSource = built
+            isoSourceBuilt = true
+            LOG.i("echo-iso-prepare-rap:$seekMs")
+            source = built
+        } else {
+            source = mediaSource ?: return false
+        }
+        if (isoSession && !retriedAsBdav) start = 0L
         speedPlaybackParameters?.let { exo.setPlaybackParameters(it) }
-        exo.setMediaSource(source, startPositionMs)
+        exo.setMediaSource(source, start)
         startPositionApplied = true
         exo.prepare()
         return true
@@ -375,7 +446,53 @@ class PlayerEngine(
     }
 
     fun seekTo(positionMs: Long) {
-        internalPlayer?.seekTo(positionMs)
+        val exo = internalPlayer ?: return
+        val action = isoSeekAction(
+            isoSession,
+            IsoPlaylistState.seekable(),
+            positionMs,
+            currentPosition,
+            ISO_SEEK_ZERO_TOLERANCE_MS,
+            ISO_SEEK_RAP_ENABLED,
+        )
+        when (action) {
+            IsoSeekAction.ALLOW -> exo.seekTo(positionMs)
+            IsoSeekAction.BLOCK -> LOG.i("echo-iso-seek-blocked:$positionMs")
+            IsoSeekAction.REBUILD -> {
+                val start = IsoPlaylistState.windowStartMs(exo.currentMediaItemIndex)
+                val duration = IsoPlaylistState.windowDurationMs(exo.currentMediaItemIndex)
+                val local = start?.let { positionMs - it }
+                if (local != null && duration != null && local >= 0L && local < duration) {
+                    LOG.i("echo-iso-seek-inperiod:$positionMs:$local:$duration")
+                    exo.seekTo(local)
+                } else if (!rebuildIsoMediaSource(positionMs)) {
+                    LOG.i("echo-iso-seek-cross-fail:$positionMs:$start:$duration")
+                }
+            }
+        }
+    }
+
+    private fun rebuildIsoMediaSource(positionMs: Long): Boolean {
+        val exo = internalPlayer ?: return false
+        if (retriedAsBdav) return false
+        val path = currentPlayPath ?: return false
+        val headers = currentHeaders ?: return false
+        val source = try {
+            mediaSources.getIsoMediaSource(path, copyHeaders(headers), positionMs)
+        } catch (e: Exception) {
+            LOG.e("echo-iso-seek-rebuild-fail:$positionMs ${e.message}")
+            return false
+        }
+        val keepPlaying = exo.playWhenReady
+        mediaSource = source
+        isoSourceBuilt = true
+        speedPlaybackParameters?.let { exo.setPlaybackParameters(it) }
+        exo.setMediaSource(source, 0L)
+        startPositionApplied = true
+        exo.prepare()
+        exo.playWhenReady = keepPlaying
+        LOG.i("echo-iso-seek-rap:$positionMs playing=$keepPlaying")
+        return true
     }
 
     fun reset() {
@@ -393,13 +510,13 @@ class PlayerEngine(
             it.release()
         }
         internalPlayer = null
-        audioOnlyRequested = false
         videoOutputInvalid = false
         videoRenderersDisabled = false
         pendingOutputWidth = 0
         pendingOutputHeight = 0
         outputSurfacePresent = false
         speedPlaybackParameters = null
+        config.videoCodecObserver?.onCodecReleased()
     }
 
     val isPlaying: Boolean
@@ -432,10 +549,56 @@ class PlayerEngine(
         }
 
     val currentPosition: Long
-        get() = internalPlayer?.currentPosition ?: 0L
+        get() {
+            val player = internalPlayer ?: return 0L
+            val offset = isoWindowOffsetMs(player) ?: return player.currentPosition
+            return offset + player.currentPosition
+        }
 
     val duration: Long
-        get() = internalPlayer?.duration ?: 0L
+        get() {
+            val player = internalPlayer ?: return 0L
+            if (isoSession || IsoSessionSignal.escalated()) {
+                val known = IsoPlaylistState.durationMs()
+                if (known > 0L) return known
+            }
+            val total = isoTotalDurationMs(player)
+            return if (total > 0L) total else player.duration
+        }
+
+    private fun isoWindowOffsetMs(player: ExoPlayer): Long? {
+        if (!isoSession && !IsoSessionSignal.escalated()) return null
+        IsoPlaylistState.windowStartMs(player.currentMediaItemIndex)?.let { return it }
+        val timeline = player.currentTimeline
+        val count = timeline.windowCount
+        if (count <= 1) return null
+        val index = player.currentMediaItemIndex
+        if (index <= 0) return 0L
+        var offset = 0L
+        val window = Timeline.Window()
+        for (i in 0 until index) {
+            timeline.getWindow(i, window)
+            if (window.durationMs == C.TIME_UNSET) return null
+            offset += window.durationMs
+        }
+        return offset
+    }
+
+    private fun isoTotalDurationMs(player: ExoPlayer): Long {
+        val timeline = player.currentTimeline
+        val count = timeline.windowCount
+        if (count <= 0) return C.TIME_UNSET
+        if (count == 1) return player.duration
+        if (!isoSession && !IsoSessionSignal.escalated()) return C.TIME_UNSET
+        var total = 0L
+        val window = Timeline.Window()
+        for (i in 0 until count) {
+            timeline.getWindow(i, window)
+            if (window.durationMs == C.TIME_UNSET) return C.TIME_UNSET
+            total += window.durationMs
+        }
+        return total
+    }
 
     val bufferedPercentage: Int
         get() = internalPlayer?.bufferedPercentage ?: 0
@@ -548,23 +711,10 @@ class PlayerEngine(
     val isTunnelingEnabled: Boolean
         get() = tunnelingEnabled
 
-    val isAudioOnlyMode: Boolean
-        get() = audioOnlyRequested
-
-    fun setAudioOnlyMode(audioOnly: Boolean) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { setAudioOnlyMode(audioOnly) }
-            return
-        }
-        if (audioOnly == audioOnlyRequested) return
-        audioOnlyRequested = audioOnly
-        applyRendererEnablement()
-    }
-
     private fun applyRendererEnablement() {
         val exo = internalPlayer ?: return
         if (videoRendererIndices.isEmpty()) return
-        val disable = audioOnlyRequested || videoOutputInvalid
+        val disable = videoOutputInvalid
         if (disable == videoRenderersDisabled) return
         val rendererCount = exo.rendererCount
         val builder = trackSelector.buildUponParameters()
@@ -578,13 +728,16 @@ class PlayerEngine(
         videoRenderersDisabled = disable
         trackSelector.setParameters(builder.build())
         LOG.i(
-            "echo-music audio-only mode=$disable videoRenderers=$applied" +
-                " requested=$audioOnlyRequested outputInvalid=$videoOutputInvalid",
+            "echo-surface renderers disabled=$disable videoRenderers=$applied" +
+                " outputInvalid=$videoOutputInvalid",
         )
     }
 
     val videoDecoderName: String
-        get() = PlayerCodecStats.videoDecoderName
+        get() = config.videoCodecObserver?.codecInfo?.decoderName.orEmpty()
+
+    val videoDecodeKind: PlayerDecodeKind
+        get() = config.videoCodecObserver?.codecInfo?.kind ?: PlayerDecodeKind.UNKNOWN
 
     val audioCodecChoice: AudioCodecChoice?
         get() = AudioCodecProbe.liveInfo(audioRenderersFactory?.audioRenderer)
@@ -595,8 +748,23 @@ class PlayerEngine(
     val lastErrorKind: Int
         get() = lastErrorKindValue
 
+    val lastErrorTrackKind: Int
+        get() = lastErrorTrackKindValue
+
+    val lastErrorFormatId: String?
+        get() = lastErrorFormatIdValue
+
     val lastErrorCodeName: String?
         get() = lastErrorCodeNameValue
+
+    val lastErrorHttpStatus: Int
+        get() = lastErrorHttpStatusValue
+
+    val lastErrorExceedsDecodeCapability: Boolean
+        get() = lastErrorExceedsDecodeCapabilityValue
+
+    val lastErrorTenBitFormat: Boolean
+        get() = lastErrorTenBitValue
 
     val droppedFrames: Long
         get() = droppedFramesTotal
@@ -756,12 +924,18 @@ class PlayerEngine(
     }
 
     private fun reportVideoSizeFromTracks(tracks: Tracks) {
-        if (!videoEffectsOpen) return
         for (group in tracks.groups) {
             if (group.type != C.TRACK_TYPE_VIDEO || !group.isSelected) continue
             for (i in 0 until group.length) {
                 if (!group.isTrackSelected(i)) continue
                 val format = group.getTrackFormat(i)
+                pictureHdrSource = ColorInfo.isTransferHdr(format.colorInfo)
+                if (!videoEffectsOpen) {
+                    if (pictureHdrSource) {
+                        LOG.i("echo-picture-hdr: source=true")
+                    }
+                    return
+                }
                 if (format.width <= 0 || format.height <= 0) return
                 var width = format.width
                 var height = format.height
@@ -770,7 +944,6 @@ class PlayerEngine(
                     width = height
                     height = rotated
                 }
-                pictureHdrSource = ColorInfo.isTransferHdr(format.colorInfo)
                 LOG.i(
                     "echo-picture-size: ${width}x$height rotation=${format.rotationDegrees} hdr=$pictureHdrSource",
                 )
@@ -780,10 +953,31 @@ class PlayerEngine(
         }
     }
 
+    private fun reportAudioFormat(tracks: Tracks) {
+        if (!isoSession) return
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO || !group.isSelected) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSelected(i)) continue
+                val format = group.getTrackFormat(i)
+                val key = format.id + "|" + format.sampleMimeType
+                if (key == lastAudioFormatLogged) return
+                lastAudioFormatLogged = key
+                LOG.i("echo-iso-audio-format:${format.id}:${format.sampleMimeType}:ch=${format.channelCount}")
+                return
+            }
+        }
+    }
+
     private fun handlePlayerError(error: PlaybackException) {
         val codeName = error.errorCodeName
         lastErrorKindValue = classifyError(codeName)
+        lastErrorTrackKindValue = classifyTrackKind(error)
+        lastErrorFormatIdValue = (error as? ExoPlaybackException)?.rendererFormat?.id
         lastErrorCodeNameValue = codeName
+        lastErrorHttpStatusValue = RetryPolicy.httpStatusForTip(error, SourcePolicy.isLocalProxyUrl(currentPlayPath))
+        lastErrorExceedsDecodeCapabilityValue = exceedsDecodeCapability(codeName, error.message)
+        lastErrorTenBitValue = isTenBitFormat((error as? ExoPlaybackException)?.rendererFormat?.colorInfo)
         LOG.e("Tvbox-runtime", "echo-Exo player error: $currentPlayPath", error)
         val sb = StringBuilder("echo-exo-player-error: code=").append(codeName).append(", msg=").append(error.message)
         var cause = error.cause
@@ -795,12 +989,37 @@ class PlayerEngine(
             i++
         }
         LOG.i(sb.toString())
+        if (retryAsBdav(error)) {
+            return
+        }
         if (retryAsHls(error)) {
             return
         }
         for (listener in ArrayList(errorListeners)) {
             listener.onPlayerError(error, lastErrorKindValue)
         }
+    }
+
+    private fun retryAsBdav(error: PlaybackException): Boolean {
+        val exo = internalPlayer ?: return false
+        val path = currentPlayPath ?: return false
+        if (retriedAsBdav || isoSession) {
+            return false
+        }
+        if (error.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
+            return false
+        }
+        retriedAsBdav = true
+        isoSession = true
+        startPositionMs = 0L
+        LOG.i("echo-iso-bdav-retry:$path")
+        val bdavSource = mediaSources.getBdavMediaSource(path, copyHeaders(currentHeaders))
+        mediaSource = bdavSource
+        exo.setMediaSource(bdavSource, 0)
+        startPositionApplied = true
+        exo.prepare()
+        exo.playWhenReady = true
+        return true
     }
 
     private fun retryAsHls(error: PlaybackException): Boolean {
@@ -830,12 +1049,45 @@ class PlayerEngine(
         const val ERROR_KIND_NETWORK = 1
         const val ERROR_KIND_DECODE = 2
 
+        const val ERROR_TRACK_UNKNOWN = 0
+        const val ERROR_TRACK_AUDIO = 1
+        const val ERROR_TRACK_VIDEO = 2
+
+        @JvmStatic
+        fun classifyTrackKind(error: PlaybackException): Int =
+            classifyTrackKind((error as? ExoPlaybackException)?.rendererFormat?.sampleMimeType)
+
+        @JvmStatic
+        fun classifyTrackKind(mimeType: String?): Int = when {
+            mimeType == null -> ERROR_TRACK_UNKNOWN
+            mimeType.startsWith("audio/") -> ERROR_TRACK_AUDIO
+            mimeType.startsWith("video/") -> ERROR_TRACK_VIDEO
+            else -> ERROR_TRACK_UNKNOWN
+        }
+        const val ISO_SEEK_ZERO_TOLERANCE_MS = 1000L
+        const val TEN_BIT = 10
+        const val ISO_SEEK_RAP_ENABLED = true
+
         @JvmStatic
         fun classifyError(codeName: String?): Int {
             if (codeName == null) return ERROR_KIND_UNKNOWN
             if (codeName.startsWith("ERROR_CODE_IO") || codeName.startsWith("ERROR_CODE_PARSING")) return ERROR_KIND_NETWORK
             if (codeName.startsWith("ERROR_CODE_DECOD")) return ERROR_KIND_DECODE
             return ERROR_KIND_UNKNOWN
+        }
+
+        @JvmStatic
+        fun isTenBitFormat(colorInfo: ColorInfo?): Boolean {
+            if (colorInfo == null) return false
+            return colorInfo.lumaBitdepth >= TEN_BIT || colorInfo.chromaBitdepth >= TEN_BIT
+        }
+
+        @JvmStatic
+        fun exceedsDecodeCapability(codeName: String?, message: String?): Boolean {
+            if (classifyError(codeName) != ERROR_KIND_DECODE) return false
+            if (codeName == "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED") return true
+            if (codeName == "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES") return true
+            return message != null && message.contains("NO_EXCEEDS_CAPABILITIES")
         }
 
         @JvmStatic

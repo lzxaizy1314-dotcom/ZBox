@@ -4,7 +4,6 @@ import android.content.res.Configuration
 import android.content.res.Resources
 import android.util.TypedValue
 import androidx.annotation.DimenRes
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,8 +33,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.player.state.ParamsChoice
 import com.github.tvbox.osc.player.state.PlayerActions
 import com.github.tvbox.osc.player.state.PlayerUiState
+import com.github.tvbox.osc.util.LOG
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
@@ -43,6 +44,7 @@ import kotlinx.coroutines.delay
 fun PlayerOverlay(
     state: PlayerUiState,
     actions: PlayerActions,
+    decodeChoice: ParamsChoice,
     gestureHandler: VideoGestureHandler,
     gestureSession: (width: Int, height: Int, screenWidth: Int, downY: Float) -> VideoGestureSession,
     onTapPending: () -> Unit,
@@ -66,19 +68,16 @@ fun PlayerOverlay(
             ),
     ) {
         val iconBox = playerIconBox(maxWidth - playerEdgePadding() * 2)
-        val slidePx = playerSlidePx()
         PlayerTipLayer(state)
-        AnimatedVisibility(
-            visible = state.topLeftVisible || state.topRightVisible,
-            enter = playerEnterFromTop(slidePx),
-            exit = playerExitToTop(slidePx),
+        PlayerSlideVisibility(
+            visible = state.topLeftVisible || (state.topRightVisible && !state.previewMode),
+            fromTop = true,
         ) {
             PlayerTopBar(state, actions)
         }
-        AnimatedVisibility(
+        PlayerSlideVisibility(
             visible = state.controlsVisible,
-            enter = playerEnterFromBottom(slidePx),
-            exit = playerExitToBottom(slidePx),
+            fromTop = false,
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             PlayerBottomBar(state, actions)
@@ -88,7 +87,7 @@ fun PlayerOverlay(
         PlayerFadeVisibility(
             visible = state.loadingVisible && !state.tipVisible,
             enterMs = PLAYER_OSD_IN_MS,
-            exitMs = PLAYER_OSD_OUT_MS,
+            exitMs = if (state.tipVisible) 0 else PLAYER_OSD_OUT_MS,
         ) {
             PlayerLoadingLayer(state)
         }
@@ -106,36 +105,37 @@ fun PlayerOverlay(
         state.selectDialog?.let { dialogState ->
             PlayerSelectDialog(
                 dialogState = dialogState,
-                onDismiss = { state.selectDialog = null },
+                onDismiss = state::dismissSelectDialog,
             )
         }
 
         state.paramsSheet?.let { sheet ->
             PlayerParamsSheet(
                 sheet = sheet,
+                decodeChoice = decodeChoice,
                 tab = state.paramsTab,
-                onTabSelected = { state.paramsTab = it },
+                onTabSelected = state::selectParamsTab,
                 osdVisible = state.infoOsdVisible,
                 onToggleOsd = actions::onInfoOsdClicked,
                 slideFromEnd = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE,
-                onDismiss = { state.paramsSheet = null },
+                onDismiss = state::dismissParamsSheet,
             )
         }
 
         state.danmuSettingSheet?.let { sheet ->
-            DanmuSettingSheet(sheet) { state.danmuSettingSheet = null }
+            DanmuSettingSheet(sheet) { state.dismissDanmuSettingSheet() }
         }
         state.danmuSearchSheet?.let { sheet ->
-            DanmuSearchSheet(sheet) { state.danmuSearchSheet = null }
+            DanmuSearchSheet(sheet) { state.dismissDanmuSearchSheet() }
         }
         state.subtitleSheet?.let { sheet ->
-            SubtitleSheet(sheet) { state.subtitleSheet = null }
+            SubtitleSheet(sheet) { state.dismissSubtitleSheet() }
         }
         state.subtitleSearchSheet?.let { sheet ->
-            SubtitleSearchSheet(sheet) { state.subtitleSearchSheet = null }
+            SubtitleSearchSheet(sheet) { state.dismissSubtitleSearchSheet() }
         }
         state.castSheet?.let { sheet ->
-            CastSheet(sheet) { state.castSheet = null }
+            CastSheet(sheet) { state.dismissCastSheet() }
         }
     }
 
@@ -153,7 +153,8 @@ fun PlayerOverlay(
     }
     LaunchedEffect(Unit) {
         while (true) {
-            actions.refreshSystemInfo()
+            runCatching { actions.refreshSystemInfo() }
+                .onFailure { LOG.e("echo-osd-refresh-failed: $it") }
             delay(1000)
         }
     }

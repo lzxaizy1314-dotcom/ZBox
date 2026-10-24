@@ -1,11 +1,14 @@
 package com.github.tvbox.osc.player.controller
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Process
+import android.os.SystemClock
 import android.webkit.WebView
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
@@ -15,13 +18,21 @@ import com.github.tvbox.osc.player.AppPlayerView
 import com.github.tvbox.osc.player.ExoPlayer
 import com.github.tvbox.osc.player.PlayerDecodeKind
 import com.github.tvbox.osc.player.PlayerHelper
+import com.github.tvbox.osc.player.engine.AudioCodecChoice
 import com.github.tvbox.osc.player.engine.AudioDecoderLookup
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.player.state.PlayerUiState
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
+import java.io.File
+import java.lang.ref.WeakReference
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+private const val PSS_SAMPLE_INTERVAL_MS = 3000L
+private const val ENV_CACHE_MS = 5000L
 
 internal object InfoOsdText {
 
@@ -35,41 +46,53 @@ internal object InfoOsdText {
         val view = videoView
         val exo = view?.mediaPlayer as? ExoPlayer
         val video = exo?.selectedVideoFormat
-        val left = ArrayList<String>()
-        val right = ArrayList<String>()
+        val left = ArrayList<Pair<String, String>>()
+        val right = ArrayList<Pair<String, String>>()
 
-        left.add(context.getString(R.string.osd_video) + " " + videoText(video, exo))
-        left.add(context.getString(R.string.osd_decoder) + " " + (exo?.videoDecoderName()?.takeIf { it.isNotEmpty() } ?: "-"))
-        left.add(context.getString(R.string.osd_audio) + " " + audioText(context, exo))
+        left.add(context.getString(R.string.osd_video) to videoText(video, exo))
+        left.add(context.getString(R.string.osd_decoder) to (exo?.videoDecoderName()?.takeIf { it.isNotEmpty() } ?: "-"))
+        left.add(context.getString(R.string.osd_audio) to audioText(context, exo))
 
         exo?.sampleFrameRate()
         val throughput = runCatching {
             DefaultBandwidthMeter.getSingletonInstance(context).bitrateEstimate
         }.getOrDefault(0L)
         left.add(
-            context.getString(R.string.osd_network) + " " + PlayerHelper.getDisplaySpeed(speed, true)
-                + " · " + bitrateText(throughput) + marginText(throughput, video)
+            context.getString(R.string.osd_network) to
+                (PlayerHelper.getDisplaySpeed(speed, true) + " · " + bitrateText(throughput) + marginText(throughput, video))
         )
-        left.add(context.getString(R.string.osd_playback) + " " + playbackText(context, state, exo))
-        val footer = context.getString(R.string.osd_config) + " " + configText(context, view, exo)
+        left.add(context.getString(R.string.osd_memory) to memoryText(context))
+        left.add(context.getString(R.string.osd_heap) to heapText())
+        left.add(context.getString(R.string.osd_playback) to playbackText(context, state, exo))
+        val footer = context.getString(R.string.osd_config) to configText(context, view, exo)
         left.add(
-            context.getString(R.string.osd_conclusion) + " "
-                + context.getString(if (state.playState == PlayState.ERROR) R.string.osd_abnormal else R.string.osd_normal)
+            context.getString(R.string.osd_conclusion) to
+                context.getString(if (state.playState == PlayState.ERROR) R.string.osd_abnormal else R.string.osd_normal)
         )
 
-        right.add(
-            context.getString(R.string.osd_device) + " " + Build.MODEL + " / " + Build.DEVICE + " / "
-                + (Build.SUPPORTED_ABIS.firstOrNull() ?: "-")
-        )
-        right.add(context.getString(R.string.osd_system) + " Android " + Build.VERSION.RELEASE + " / SDK " + Build.VERSION.SDK_INT)
-        right.add(context.getString(R.string.osd_chip) + " " + chipText())
-        right.add(context.getString(R.string.osd_screen) + " " + screenText(context, activity))
-        right.add("WebView " + webViewText())
-        right.add(context.getString(R.string.osd_network_env) + " " + networkEnvText(context))
+        val now = SystemClock.elapsedRealtime()
+        val cachedRight = cachedRightLines
+        val sameActivity = cachedRightActivity?.get() === activity
+        if (cachedRight != null && sameActivity && now - lastRightAt < ENV_CACHE_MS) {
+            right.addAll(cachedRight)
+        } else {
+            right.add(
+                context.getString(R.string.osd_device) to
+                    (Build.MODEL + " / " + Build.DEVICE + " / " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "-"))
+            )
+            right.add(context.getString(R.string.osd_system) to ("Android " + Build.VERSION.RELEASE + " / SDK " + Build.VERSION.SDK_INT))
+            right.add(context.getString(R.string.osd_chip) to chipText())
+            right.add(context.getString(R.string.osd_screen) to screenText(context, activity))
+            right.add("WebView" to webViewText())
+            right.add(context.getString(R.string.osd_network_env) to networkEnvText(context))
+            cachedRightLines = right.toList()
+            lastRightAt = now
+            cachedRightActivity = WeakReference(activity)
+        }
 
-        state.infoOsdLeft = left
-        state.infoOsdRight = right
-        state.infoOsdFooter = footer
+        state.updateInfoOsdLeft(left)
+        state.updateInfoOsdRight(right)
+        state.updateInfoOsdFooter(footer)
     }
 
     private fun videoText(format: Format?, exo: ExoPlayer?): String {
@@ -108,16 +131,10 @@ internal object InfoOsdText {
         val parts = ArrayList<String>()
         val codecs = format.codecs
         parts.add(if (!codecs.isNullOrEmpty()) codecs else format.sampleMimeType?.substringAfter('/')?.uppercase(Locale.US) ?: "-")
-        val live = exo.audioCodecChoice()
-        if (live != null) {
-            parts.add(decodeKindText(context, PlayerHelper.decodeKindOf(live.name, live.hardwareAccelerated, live.softwareOnly)))
-            parts.add(live.name)
-        } else {
-            val predicted = AudioDecoderLookup.choiceFor(format)
-            if (predicted != null) {
-                parts.add(decodeKindText(context, PlayerHelper.decodeKindOf(predicted.name, predicted.hardwareAccelerated, predicted.softwareOnly)))
-                parts.add(predicted.name)
-            }
+        val probe = probeAudioCodec(format, exo)
+        if (probe != null) {
+            parts.add(decodeKindText(context, PlayerHelper.decodeKindOf(probe.choice.name, probe.choice.hardwareAccelerated, probe.choice.softwareOnly)))
+            parts.add(probe.choice.name)
         }
         if (format.channelCount > 0) parts.add(format.channelCount.toString() + ".0")
         if (format.sampleRate > 0) {
@@ -134,18 +151,25 @@ internal object InfoOsdText {
         PlayerDecodeKind.UNKNOWN -> "-"
     }
 
+    private class AudioProbe(val choice: AudioCodecChoice, val source: String)
+
     private var lastLoggedAudioKey: String? = null
 
-    private fun logAudioCodec(format: Format, exo: ExoPlayer?) {
+    private fun probeAudioCodec(format: Format, exo: ExoPlayer?): AudioProbe? {
         val live = exo?.audioCodecChoice()
-        val predicted = if (live == null) AudioDecoderLookup.choiceFor(format) else null
-        val choice = live ?: predicted ?: return
-        val source = if (live != null) "live" else "predicted"
-        val key = source + "|" + choice.name + "|" + choice.hardwareAccelerated + "|" + choice.softwareOnly
+        if (live != null) return AudioProbe(live, "live")
+        val guess = AudioDecoderLookup.guessChoice(format) ?: return null
+        return AudioProbe(guess.first, if (guess.second) "extension" else "predicted")
+    }
+
+    private fun logAudioCodec(format: Format, exo: ExoPlayer?) {
+        val probe = probeAudioCodec(format, exo) ?: return
+        val choice = probe.choice
+        val key = probe.source + "|" + choice.name + "|" + choice.hardwareAccelerated + "|" + choice.softwareOnly
         if (key == lastLoggedAudioKey) return
         lastLoggedAudioKey = key
         LOG.i(
-            "echo-player-audio-codec: source=$source mime=${format.sampleMimeType} name=${choice.name}" +
+            "echo-player-audio-codec: source=${probe.source} mime=${format.sampleMimeType} name=${choice.name}" +
                 " hw=${choice.hardwareAccelerated} swOnly=${choice.softwareOnly}" +
                 " kind=${PlayerHelper.decodeKindOf(choice.name, choice.hardwareAccelerated, choice.softwareOnly)}" +
                 " renderer=${exo?.audioRendererName() ?: "-"}",
@@ -187,17 +211,10 @@ internal object InfoOsdText {
         return String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
     }
 
-    private fun decodeText(context: Context, exo: ExoPlayer?): String {
-        val name = exo?.videoDecoderName()?.takeIf { it.isNotEmpty() } ?: return "-"
-        val software = name.startsWith("c2.android.") || name.startsWith("OMX.google.") ||
-            name.startsWith("OMX.ffmpeg.") || name.contains(".sw.")
-        return context.getString(if (software) R.string.player_decode_soft else R.string.player_decode_hard)
-    }
-
     private fun configText(context: Context, videoView: AppPlayerView?, exo: ExoPlayer?): String {
         val parts = ArrayList<String>()
         parts.add(context.getString(R.string.player_exo))
-        parts.add(decodeText(context, exo))
+        parts.add(decodeKindText(context, exo?.videoDecodeKind() ?: PlayerDecodeKind.UNKNOWN))
         parts.add(if (videoView?.renderIsSurface == true) "Surface" else "Texture")
         parts.add(context.getString(R.string.osd_tunnel) + " " + onOffText(context, exo?.isTunnelingEnabled == true))
         parts.add(context.getString(R.string.osd_frame_rate_match) + " " + onOffText(context, false))
@@ -237,6 +254,65 @@ internal object InfoOsdText {
         return WebView.getCurrentWebViewPackage()?.versionName ?: "-"
     }
 
+    private val memoryExecutor by lazy {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "echo-osd-mem").apply { isDaemon = true }
+        }
+    }
+    private val memorySampling = AtomicBoolean(false)
+
+    @Volatile
+    private var cachedPssKb = 0L
+    private var lastPssSampleAt = 0L
+
+    private var cachedRightLines: List<Pair<String, String>>? = null
+    private var lastRightAt = 0L
+    private var cachedRightActivity: WeakReference<Activity>? = null
+
+    private fun memoryText(context: Context): String {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPssSampleAt >= PSS_SAMPLE_INTERVAL_MS && memorySampling.compareAndSet(false, true)) {
+            lastPssSampleAt = now
+            memoryExecutor.execute {
+                try {
+                    readPssKb(context)?.let { cachedPssKb = it }
+                } finally {
+                    memorySampling.set(false)
+                }
+            }
+        }
+        val pss = cachedPssKb
+        if (pss <= 0L) return "-"
+        return String.format(Locale.US, "%.0fMB", pss / 1024f)
+    }
+
+    private fun readPssKb(context: Context): Long? = readSelfPssKb() ?: processPssKb(context)
+
+    private fun readSelfPssKb(): Long? = runCatching {
+        File("/proc/self/smaps_rollup").useLines { lines ->
+            lines.firstOrNull { it.startsWith("Pss:") }
+                ?.filter { it.isDigit() }
+                ?.toLongOrNull()
+                ?.takeIf { it > 0 }
+        }
+    }.getOrNull()
+
+    private fun processPssKb(context: Context): Long? {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
+        val pss = runCatching {
+            manager.getProcessMemoryInfo(intArrayOf(Process.myPid())).firstOrNull()?.totalPss ?: 0
+        }.getOrDefault(0)
+        return if (pss > 0) pss.toLong() else null
+    }
+
+    private fun heapText(): String {
+        val runtime = Runtime.getRuntime()
+        val max = runtime.maxMemory() / 1048576L
+        if (max <= 0) return "-"
+        val used = (runtime.totalMemory() - runtime.freeMemory()) / 1048576L
+        return used.toString() + "/" + max + "MB"
+    }
+
     private fun networkEnvText(context: Context): String {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return "-"
         val network = manager.activeNetwork ?: return "offline"
@@ -256,10 +332,12 @@ internal object InfoOsdText {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
                 ?: return
             val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            state.batteryPercent = if (level in 0..100) level else -1
+            state.updateBatteryPercent(if (level in 0..100) level else -1)
             val status = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
-            state.batteryCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                    status == BatteryManager.BATTERY_STATUS_FULL
+            state.updateBatteryCharging(
+                status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL,
+            )
         }
     }
 }

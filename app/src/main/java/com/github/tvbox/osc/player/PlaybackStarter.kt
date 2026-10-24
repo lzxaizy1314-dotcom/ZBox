@@ -7,7 +7,8 @@ import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.data.AppGraph
 import com.github.tvbox.osc.data.PlaybackProgress
 import com.github.tvbox.osc.data.WatchProgressStore
-import com.github.tvbox.osc.event.RefreshEvent
+import com.github.tvbox.osc.player.engine.MediaSources
+import com.github.tvbox.osc.player.engine.SourcePolicy
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.server.ControlManager
 import com.github.tvbox.osc.sourcedata.SourceViewModel
@@ -17,9 +18,7 @@ import com.github.tvbox.osc.util.ImgUtil
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MD5
-import com.github.tvbox.osc.util.thunder.Jianpian
 import com.github.tvbox.osc.util.thunder.Thunder
-import org.greenrobot.eventbus.EventBus
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -33,6 +32,8 @@ class PlaybackStarter(private val host: Host) {
 
     interface Host {
         fun attemptState(): PlaybackAttemptState
+
+        fun updateAttemptState(block: (PlaybackAttemptState) -> PlaybackAttemptState)
 
         fun view(): PlaybackViewBridge?
 
@@ -88,7 +89,7 @@ class PlaybackStarter(private val host: Host) {
 
         fun startResolvePlayUrlTimeout()
 
-        fun startSwitchLinePlayTimeout()
+        fun startSwitchLinePlayTimeout(isoSession: Boolean)
 
         fun cancelPlayTimeout()
 
@@ -118,10 +119,9 @@ class PlaybackStarter(private val host: Host) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     fun play(reset: Boolean) {
-        val st = host.attemptState()
-        val prepareOnly = st.castPrepareOnly
+        val prepareOnly = host.attemptState().castPrepareOnly
         if (prepareOnly) LOG.i("echo-cast prepare: resolve only, no playback side effects")
-        st.switchStopPending = false
+        host.updateAttemptState { it.copy(switchStopPending = false) }
         host.resolverNextGen()
         host.invalidatePreload()
         host.view()?.hidePreloadReadyTip()
@@ -136,8 +136,7 @@ class PlaybackStarter(private val host: Host) {
             KernelReusePolicy.decide(kernelPresent, false, false, reuseAllowed) == KernelDecision.REUSE
         }
         if (!prepareOnly) {
-            st.switchingPlayback = true
-            st.audioPlayback = false
+            host.updateAttemptState { it.copy(switchingPlayback = true) }
             val sameContentRestart = !reset && host.isSameContentRestart()
             host.view()?.onNewPlayStarted(sameContentRestart)
             host.view()?.clearArtwork()
@@ -151,7 +150,6 @@ class PlaybackStarter(private val host: Host) {
             val startedKey = host.startedProgressKey()
             val sameContentReuse = startedKey != null
                 && !KernelReusePolicy.isCrossContentSwitch(startedKey, host.progressKey())
-            EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_REFRESH, host.vod()))
             if (sameContentReuse) {
                 host.view()?.showTip("", true, false)
             } else {
@@ -188,12 +186,12 @@ class PlaybackStarter(private val host: Host) {
             PlaybackProgress.onEpisodeStart(host.vod())
         }
         host.startResolvePlayUrlTimeout()
-        if (st.pendingInheritProgress > 0 && !TextUtils.isEmpty(st.pendingInheritKey)) {
-            if (!prepareOnly) host.inheritProgressFrom(st.pendingInheritKey, st.pendingInheritProgress)
-            LOG.i("echo-switchSource inherit progress " + st.pendingInheritProgress + "ms from " + st.pendingInheritKey)
+        val inherit = host.attemptState()
+        if (inherit.pendingInheritProgress > 0 && !TextUtils.isEmpty(inherit.pendingInheritKey)) {
+            if (!prepareOnly) host.inheritProgressFrom(inherit.pendingInheritKey, inherit.pendingInheritProgress)
+            LOG.i("echo-switchSource inherit progress " + inherit.pendingInheritProgress + "ms from " + inherit.pendingInheritKey)
         }
-        st.pendingInheritKey = null
-        st.pendingInheritProgress = 0
+        host.updateAttemptState { it.copy(pendingInheritKey = null, pendingInheritProgress = 0) }
         if (reset && !prepareOnly) {
             host.clearInheritProgress()
             WatchProgressStore.clear(host.progressOwner(), host.progressKey())
@@ -208,16 +206,8 @@ class PlaybackStarter(private val host: Host) {
         }
 
         val seriesUrl = requireNotNull(vs.url)
-        if (Jianpian.isJpUrl(seriesUrl)) {
-            host.view()?.showParse(false)
-            if (seriesUrl.startsWith("tvbox-xg:")) {
-                playUrl(requireNotNull(Jianpian.JPUrlDec(seriesUrl.substring(9))), null)
-            } else {
-                playUrl(requireNotNull(Jianpian.JPUrlDec(seriesUrl)), null)
-            }
-            return
-        }
         val thunderGen = host.resolverCurrentGen()
+        val magnetPending = Thunder.isMagnetUrl(seriesUrl)
         if (Thunder.play(seriesUrl, object : Thunder.ThunderCallback {
                 override fun status(code: Int, info: String) {
                     host.view()?.showTip(info, code >= 0, code < 0)
@@ -232,6 +222,10 @@ class PlaybackStarter(private val host: Host) {
             })
         ) {
             host.view()?.showParse(false)
+            if (magnetPending && !prepareOnly) {
+                host.cancelPlayTimeout()
+                host.view()?.showTip(PlaybackController.str(R.string.thunder_parsing), true, false)
+            }
             return
         }
 
@@ -272,11 +266,11 @@ class PlaybackStarter(private val host: Host) {
     }
 
     fun playUrl(url: String, headers: HashMap<String, String>?) {
-        host.startSwitchLinePlayTimeout()
+        host.syncDecodeFromGlobal()
         val target = attachProxySiteKey(url)
-        if (!target.startsWith("data:application")) {
-            EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_REFRESH, target))
-        }
+        host.updateAttemptState { it.copy(localProxySession = SourcePolicy.isLocalProxyUrl(target)) }
+        SlowOpenSignal.reset()
+        host.startSwitchLinePlayTimeout(MediaSources.isoHeaders(headers))
         if (!KV.get(HawkConfig.M3U8_PURIFY, false)) {
             goPlayUrl(target, headers)
             return
@@ -296,8 +290,8 @@ class PlaybackStarter(private val host: Host) {
     }
 
     fun goPlayUrl(url: String, headers: HashMap<String, String>?) {
-        val st = host.attemptState()
-        if (st.castAborted) {
+        host.updateAttemptState { it.copy(isoSession = MediaSources.isoHeaders(headers)) }
+        if (host.attemptState().castAborted) {
             LOG.i("echo-cast abort: drop late play url")
             host.cancelPlayTimeout()
             return
@@ -314,11 +308,11 @@ class PlaybackStarter(private val host: Host) {
         scope.launch {
             val live = host.view()
             if (live == null || !live.isPageAlive()) return@launch
-            if (st.switchStopPending) {
+            if (host.attemptState().switchStopPending) {
                 LOG.i("echo-ignore goPlayUrl while source switching")
                 return@launch
             }
-            if (st.castAborted) {
+            if (host.attemptState().castAborted) {
                 LOG.i("echo-cast abort: drop late play url")
                 host.cancelPlayTimeout()
                 return@launch
@@ -330,7 +324,7 @@ class PlaybackStarter(private val host: Host) {
             }
             host.setWebPlayUrl(finalUrl)
             host.stopParse()
-            if (st.castPrepareOnly) {
+            if (host.attemptState().castPrepareOnly) {
                 host.closeCastPrepare()
                 host.cancelPlayTimeout()
                 LOG.i("echo-cast prepare: url resolved, keep playback off")

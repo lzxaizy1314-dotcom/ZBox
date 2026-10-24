@@ -40,7 +40,7 @@ fun VodCard(
                 shape = RoundedCornerShape(16.dp),
             ) {
                 Box(modifier = Modifier.aspectRatio(2f / 3f)) {
-                    VodPoster(video.name, video.pic, year = video.year, sourceKey = video.sourceKey, tmdbCacheOnly = true)
+                    VodPoster(video.name, video.pic, year = video.year, sourceKey = video.sourceKey, tmdbCacheOnly = true, altName = video.en)
                     RatingBadge(video, Modifier.align(Alignment.TopEnd))
                 }
             }
@@ -66,7 +66,7 @@ fun VodCard(
         shape = RoundedCornerShape(16.dp),
     ) {
         Box(modifier = Modifier.aspectRatio(2f / 3f)) {
-            VodPoster(video.name, video.pic, year = video.year, sourceKey = video.sourceKey, tmdbCacheOnly = true)
+            VodPoster(video.name, video.pic, year = video.year, sourceKey = video.sourceKey, tmdbCacheOnly = true, altName = video.en)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -139,4 +139,11 @@ internal fun ratingBadgeText(note: String?): String? {
         return if (num.toFloatOrNull() == 0f) null else num
     }
     return n.takeIf { it.toFloatOrNull() != 0f }
+}
+
+internal fun isRatingNote(note: String?): Boolean {
+    val n = note?.trim().orEmpty()
+    if (n.isEmpty()) return false
+    if (n.toFloatOrNull() != null) return true
+    return ratingBadgeText(n) != n
 }

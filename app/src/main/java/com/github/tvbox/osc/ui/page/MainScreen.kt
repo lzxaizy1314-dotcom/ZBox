@@ -2,6 +2,7 @@
 
 package com.github.tvbox.osc.ui.page
 
+import com.github.tvbox.osc.api.AppBootstrap
 import android.app.Activity
 import android.content.Intent
 import android.os.Build
@@ -142,7 +143,7 @@ private fun MainContent() {
         if (homeViewModel.defaultLiveLaunched) return@LaunchedEffect
         AppBootstrap.state.collect { boot ->
             if (boot is AppBootstrap.Boot.Ready && !homeViewModel.defaultLiveLaunched) {
-                homeViewModel.defaultLiveLaunched = true
+                homeViewModel.markDefaultLiveLaunched()
                 val disabled = BootGuard.takeSafeDisabledNotice()
                 if (disabled.isNotEmpty()) {
                     Toast.makeText(context, context.getString(R.string.toast_source_auto_disabled), Toast.LENGTH_LONG).show()
@@ -162,13 +163,11 @@ private fun MainContent() {
     }
 
     BackHandler {
-        val now = System.currentTimeMillis()
-        if (now - homeViewModel.lastBackTime < 2000) {
+        if (homeViewModel.onBackPressedOnce()) {
             AppManager.getInstance().finishAllActivity()
             ControlManager.get().stopServer()
             (context as? Activity)?.finishAffinity()
         } else {
-            homeViewModel.lastBackTime = now
             Toast.makeText(context, context.getString(R.string.toast_press_again_to_exit), Toast.LENGTH_SHORT).show()
         }
     }
@@ -337,35 +336,14 @@ private fun MainContent() {
             if (liquidGlassEnabled) {
                 val homeHorizontal = HomeSettings.layoutFlow.collectAsStateWithLifecycle().value ==
                     HomeSettings.HomeLayout.Horizontal
-                if (!homeHorizontal) {
+                if (navAxis == NavAxis.Horizontal && !homeHorizontal) {
                     val scrimColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.9f)
-                    val (scrimStart, scrimEnd) = if (NavMetrics.scrimOpaqueAtStart(navAxis)) {
-                        scrimColor to Color.Transparent
-                    } else {
-                        Color.Transparent to scrimColor
-                    }
                     Box(
                         modifier = Modifier
-                            .then(
-                                if (navAxis == NavAxis.Horizontal) {
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(navBandExtent)
-                                        .align(Alignment.BottomCenter)
-                                } else {
-                                    Modifier
-                                        .fillMaxHeight()
-                                        .width(navBandExtent)
-                                        .align(Alignment.CenterStart)
-                                }
-                            )
-                            .background(
-                                if (navAxis == NavAxis.Horizontal) {
-                                    Brush.verticalGradient(0f to scrimStart, 1f to scrimEnd)
-                                } else {
-                                    Brush.horizontalGradient(0f to scrimStart, 1f to scrimEnd)
-                                }
-                            ),
+                            .fillMaxWidth()
+                            .height(navBandExtent)
+                            .align(Alignment.BottomCenter)
+                            .background(Brush.verticalGradient(0f to Color.Transparent, 1f to scrimColor)),
                     )
                 }
                 Box(
@@ -379,7 +357,6 @@ private fun MainContent() {
                     } else {
                         Modifier
                             .align(Alignment.CenterStart)
-                            .fillMaxHeight()
                             .windowInsetsPadding(WindowInsets.systemBars)
                             .padding(vertical = 16.dp)
                             .padding(start = NavMetrics.MARGIN_DP.dp)

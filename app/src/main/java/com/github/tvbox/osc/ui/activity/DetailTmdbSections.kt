@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,8 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,80 +45,51 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.util.TmdbApi
 import com.github.tvbox.osc.util.TmdbPoster
-import java.util.Locale
 
-private val CastAvatarSize = 64.dp
+private val CastAvatarSize = 80.dp
 
-private val CastItemWidth = 76.dp
+private val CastItemWidth = 92.dp
 
 private val CastSheetAvatarSize = 96.dp
 
 private val CastSheetLoadingSize = 40.dp
 
+private const val CastSheetHeightFraction = 0.6f
+
 @Composable
-internal fun TmdbInfoSection(name: String?, year: Int) {
-    val detail = rememberTmdbDetail(name, year) ?: return
-    val showMeta = detail.overview.isNotBlank() || detail.rating > 0.0 || detail.genres.isNotEmpty()
-    val showCast = detail.cast.isNotEmpty()
-    if (!showMeta && !showCast) return
-    if (showMeta) TmdbMetaBlock(detail)
-    if (showCast) TmdbCastBlock(detail.cast)
+internal fun TmdbCastSection(name: String?, altName: String?, year: Int) {
+    val detail = rememberTmdbDetail(name, altName, year) ?: return
+    if (detail.cast.isNotEmpty()) TmdbCastBlock(detail.cast)
 }
 
 @Composable
-private fun rememberTmdbDetail(name: String?, year: Int): TmdbApi.TmdbDetail? {
-    if (name.isNullOrBlank()) return null
-    val epoch by TmdbPoster.configEpoch.collectAsState()
-    var detail by remember(name, year, epoch) {
-        mutableStateOf(TmdbPoster.cachedDetail(name, year))
-    }
-    LaunchedEffect(name, year, epoch) {
-        if (detail == null) detail = TmdbPoster.resolveDetail(name, year)
-    }
-    return detail
-}
-
-@Composable
-private fun TmdbMetaBlock(detail: TmdbApi.TmdbDetail) {
+internal fun TmdbGenreSection(name: String?, altName: String?, year: Int) {
+    val detail = rememberTmdbDetail(name, altName, year) ?: return
+    if (detail.genres.isEmpty()) return
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 16.dp),
     ) {
-        Text(
-            text = stringResource(R.string.tmdb_meta_title),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-        )
-        if (detail.rating > 0.0) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        ) {
+            SectionTitleIcon(painterResource(R.drawable.ic_detail_genres))
             Text(
-                text = stringResource(R.string.tmdb_rating, String.format(Locale.US, "%.1f", detail.rating)),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+                text = stringResource(R.string.detail_genres),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
-        if (detail.overview.isNotBlank()) {
-            Text(
-                text = detail.overview,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp),
-            )
-        }
-        if (detail.genres.isNotEmpty()) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                items(detail.genres) { genre -> TmdbGenreChip(genre) }
-            }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(detail.genres) { genre -> TmdbGenreChip(genre) }
         }
     }
 }
@@ -138,6 +110,19 @@ private fun TmdbGenreChip(label: String) {
 }
 
 @Composable
+internal fun rememberTmdbDetail(name: String?, altName: String?, year: Int): TmdbApi.TmdbDetail? {
+    if (name.isNullOrBlank()) return null
+    val epoch by TmdbPoster.configEpoch.collectAsState()
+    var detail by remember(name, altName, year, epoch) {
+        mutableStateOf(TmdbPoster.cachedDetail(name, year, altName))
+    }
+    LaunchedEffect(name, altName, year, epoch) {
+        if (detail == null) detail = TmdbPoster.resolveDetail(name, year, altName)
+    }
+    return detail
+}
+
+@Composable
 private fun TmdbCastBlock(cast: List<TmdbApi.TmdbCastMember>) {
     var selected by remember { mutableStateOf<TmdbApi.TmdbCastMember?>(null) }
     Column(
@@ -145,12 +130,20 @@ private fun TmdbCastBlock(cast: List<TmdbApi.TmdbCastMember>) {
             .fillMaxWidth()
             .padding(top = 16.dp),
     ) {
-        Text(
-            text = stringResource(R.string.detail_cast),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        ) {
+            SectionTitleIcon(painterResource(R.drawable.ic_detail_actors))
+            Text(
+                text = stringResource(R.string.detail_cast),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -224,7 +217,7 @@ private fun rememberCastPerson(id: Int): CastPersonState {
 private fun TmdbCastSheet(member: TmdbApi.TmdbCastMember, onDismiss: () -> Unit) {
     AVBoxBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxHeight(CastSheetHeightFraction),
     ) {
         val state = rememberCastPerson(member.id)
         val person = (state as? CastPersonState.Ready)?.person

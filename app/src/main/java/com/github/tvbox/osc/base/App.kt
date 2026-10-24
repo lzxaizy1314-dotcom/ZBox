@@ -3,13 +3,14 @@ package com.github.tvbox.osc.base
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import android.os.StrictMode
 import android.os.SystemClock
 
 import com.github.catvod.crawler.JsLoader
 import com.github.tvbox.osc.BuildConfig
-import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.data.AppDataManager
+import com.github.tvbox.osc.data.PlaybackDataPorts
 import com.github.tvbox.osc.data.PlaybackPorts
 import com.github.tvbox.osc.io.FileUtils
 import com.github.tvbox.osc.net.OkGoHelper
@@ -22,7 +23,6 @@ import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.LanguageManager
 import com.github.tvbox.osc.util.Probe
-import com.p2p.P2PClass
 import com.whl.quickjs.android.QuickJSLoader
 
 import com.github.tvbox.osc.player.engine.PlayerCache
@@ -30,7 +30,6 @@ import me.jessyan.autosize.AutoSizeConfig
 import me.jessyan.autosize.unit.Subunits
 
 class App : Application() {
-    private var vodInfo: VodInfo? = null
 
     override fun attachBaseContext(base: Context) {
         Probe.step("kvInit") { KV.init(base) }
@@ -53,7 +52,16 @@ class App : Application() {
         bootMark("installStrictMode")
         instance = this
         AppContextHolder.install(this)
-        PlaybackPorts.currentVod = { getInstance()?.getVodInfo() }
+        PlaybackPorts.ports = object : PlaybackDataPorts {
+            override fun currentVod() = com.github.tvbox.osc.player.PlaybackService.peek()?.controller()?.vod()
+            override fun isLiveMode() = com.github.tvbox.osc.player.PlaybackService.peek()?.isLiveMode() == true
+            override fun discardStartedContentOf(owners: List<String>) {
+                com.github.tvbox.osc.player.PlaybackService.peek()?.discardStartedContentOf(owners)
+            }
+            override fun onProgressKeysCleared(keys: List<String>) {
+                com.github.tvbox.osc.player.PlaybackService.peek()?.markZeroStartKeys(keys)
+            }
+        }
         com.github.tvbox.osc.util.BootGuard.install()
         bootMark("bootGuard")
         initParams()
@@ -84,6 +92,7 @@ class App : Application() {
         Probe.trace("boot:vodImages") { com.github.tvbox.osc.ui.components.VodImages.init() }
         bootMark("vodImages")
         Thread({
+            FileUtils.ensureNoMediaMarker()
             FileUtils.purgeExoCacheIfPending()
             PlayerCache.warmup(this)
             Probe.trace("boot:cleanPlayerCache") { FileUtils.cleanPlayerCache() }
@@ -114,6 +123,7 @@ class App : Application() {
 
     private fun installStrictMode() {
         if (!BuildConfig.DEBUG) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
         StrictMode.setThreadPolicy(
             StrictMode.ThreadPolicy.Builder()
                 .detectDiskReads()
@@ -138,14 +148,6 @@ class App : Application() {
         JsLoader.destroy()
     }
 
-    fun setVodInfo(vodinfo: VodInfo?) {
-        this.vodInfo = vodinfo
-    }
-
-    fun getVodInfo(): VodInfo? {
-        return this.vodInfo
-    }
-
     fun getCurrentActivity(): Activity {
         return AppManager.getInstance().currentActivity()
     }
@@ -161,29 +163,11 @@ class App : Application() {
     companion object {
         private var instance: App? = null
 
-        private var p: P2PClass? = null
-
-        @JvmField
-        var burl: String? = null
-
         private var dashData: String? = null
 
         @JvmStatic
         fun getInstance(): App? {
             return instance
-        }
-
-        @JvmStatic
-        fun getp2p(): P2PClass? {
-            try {
-                if (p == null) {
-                    p = P2PClass(FileUtils.getExternalCachePath())
-                }
-                return p
-            } catch (e: Exception) {
-                LOG.e(e.toString())
-                return null
-            }
         }
     }
 }

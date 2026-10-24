@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,6 +64,7 @@ import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.HistoryMerge
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.MusicSettings
+import com.github.tvbox.osc.util.SpiderStorageNotice
 import com.github.tvbox.osc.util.TmdbPoster
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -128,7 +130,7 @@ class SettingsViewModel : ViewModel() {
     fun refreshCacheSize() {
         cacheSizeRefreshedAt = SystemClock.elapsedRealtime()
         viewModelScope.launch {
-            val text = withContext(Dispatchers.IO) { FileUtils.formatCacheSize(FileUtils.getCacheSize()) }
+            val text = withContext(Dispatchers.IO) { cacheSizeText() }
             applyCacheSizeText(text)
         }
     }
@@ -143,12 +145,15 @@ class SettingsViewModel : ViewModel() {
             val text = withContext(Dispatchers.IO) {
                 FileUtils.clearCache()
                 TmdbPoster.clearCachedPosters()
-                FileUtils.formatCacheSize(FileUtils.getCacheSize())
+                cacheSizeText()
             }
             applyCacheSizeText(text)
             onCleared()
         }
     }
+
+    private fun cacheSizeText(): String =
+        FileUtils.formatCacheSize(FileUtils.getCacheSize())
 
     private fun applyCacheSizeText(text: String) {
         if (text != cacheSizeText) {
@@ -167,7 +172,7 @@ class SettingsViewModel : ViewModel() {
         playTunnel = KV.get(HawkConfig.PLAY_TUNNEL, false),
         preferAac = KV.get(HawkConfig.PLAY_PREFER_AAC, false),
         musicPlayerPage = MusicSettings.autoOpenPage(),
-        autoSwitchLine = KV.get(HawkConfig.AUTO_SWITCH_LINE, false),
+        autoSwitchLine = KV.get(HawkConfig.AUTO_SWITCH_LINE, HawkConfig.AUTO_SWITCH_LINE_DEFAULT),
         m3u8Purify = KV.get(HawkConfig.M3U8_PURIFY, false),
         incognito = KV.get(HawkConfig.INCOGNITO, false),
         hideStatusBar = KV.get(HawkConfig.HIDE_STATUS_BAR, false),
@@ -389,7 +394,11 @@ fun SettingsPage(
 
 @Composable
 private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
-    AVBoxBottomSheet(onDismissRequest = onDismiss, title = stringResource(R.string.settings_about)) {
+    AVBoxBottomSheet(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.settings_about),
+        modifier = Modifier.fillMaxHeight(AboutSheetHeightFraction),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -413,10 +422,13 @@ private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
     }
 }
 
+private const val AboutSheetHeightFraction = 0.6f
+
 private const val GITHUB_REPO_URL = "https://github.com/XiaochangXu/AVBox"
 
 private fun openExternalUrl(context: Context, url: String) {
     try {
+        SpiderStorageNotice.suppress()
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     } catch (e: Exception) {
         Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()

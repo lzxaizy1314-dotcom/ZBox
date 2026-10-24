@@ -14,24 +14,31 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -43,10 +50,13 @@ import com.github.tvbox.osc.ui.components.HomeBackdrop
 import com.github.tvbox.osc.ui.components.ImagePalette
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
+import com.github.tvbox.osc.ui.components.LocalTopBarGlassBackdrop
 import com.github.tvbox.osc.ui.components.PosterBackdrop
 import com.github.tvbox.osc.ui.components.VodCardMenu
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.AppThemeState
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -56,6 +66,15 @@ import com.github.tvbox.osc.ui.page.jumpToSearch
 private const val EntrySlideDurationMs = 300
 private const val ContentSlideRatio = 0.2f
 
+private const val FlatScrollScrimAlpha = 0.45f
+
+private val FlatPageScrimStops = arrayOf(
+    0f to Color.Black.copy(alpha = 0.05f),
+    0.45f to Color.Black.copy(alpha = 0.28f),
+    0.75f to Color.Black.copy(alpha = 0.48f),
+    1f to Color.Black.copy(alpha = 0.62f),
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
@@ -63,15 +82,37 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
     val pageState by vm.pageState.collectAsState()
     val full by vm.fullScreen.collectAsState()
     val rotating by vm.rotating.collectAsState()
-    val revision by vm.revision.collectAsState()
     val playSignal by vm.playSignal.collectAsState()
-    val toast by vm.toastEvent.collectAsState()
-    val finish by vm.finishEvent.collectAsState()
     val enteringFullscreen by vm.enteringFullscreen.collectAsState()
     val exitingFullscreen by vm.exitingFullscreen.collectAsState()
-    val vodMenu = rememberVodCardMenuState()
+    val vodMenu = rememberVodCardMenuState(
+        lookupCollected = vm::isVideoCollected,
+        onCollectToggle = vm::toggleVideoCollect,
+    )
 
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val heroFadePx = with(density) { HeroScrollFadeDistance.roundToPx() }
+    val heroProgress by remember(listState, heroFadePx) {
+        derivedStateOf {
+            heroScrollProgress(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+                heroFadePx,
+            )
+        }
+    }
+    val heroGone by remember(listState) {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 }
+    }
     val configuration = LocalConfiguration.current
+    val flatHero = flatHeroLayout(
+        configuration.smallestScreenWidthDp,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+    )
+    LaunchedEffect(heroGone, flatHero) { activity.setStatusBarIconsLight(heroGone && !flatHero) }
+
     val isLandscapeNow = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val fullBox = DetailFullScreenFrame.fullBox(rotating, full, isLandscapeNow)
     val inTransition = enteringFullscreen || exitingFullscreen
@@ -84,8 +125,9 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
     val pendingPic = vm.pendingPicture
     val backdropSource = backdropPic.ifEmpty { pendingPic }
     val backdropSeedArgb = backdropSeed ?: HomeBackdrop.seedOf(pendingPic)
-    val darkTheme = AppThemeState.isDark(isSystemInDarkTheme())
-    val colorScheme = backdropSeedArgb?.let { argb ->
+    val darkTheme = AppThemeState.isDark(isSystemInDarkTheme()) || flatHero
+    val schemeSeed = backdropSeedArgb ?: if (flatHero) AppThemeState.config.seedArgb else null
+    val colorScheme = schemeSeed?.let { argb ->
         remember(argb, darkTheme) {
             AppThemeState.customScheme(argb, darkTheme, AppThemeState.config.style)
         }
@@ -95,6 +137,14 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
         if (pageState is DetailViewModel.PageState.Loading) {
             backdropPic = ""
             backdropSeed = null
+        }
+    }
+
+    LaunchedEffect(pageState) {
+        if (pageState is DetailViewModel.PageState.Ready) {
+            withFrameNanos { }
+            withFrameNanos { }
+            activity.preheatWebView()
         }
     }
 
@@ -168,20 +218,19 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
         activity.applyFullscreen(full)
     }
 
-    LaunchedEffect(toast) {
-        toast?.let {
-            Toast.makeText(activity, it, Toast.LENGTH_SHORT).show()
-            vm.clearToast()
+    LaunchedEffect(Unit) {
+        vm.toastEvent.collect { message ->
+            Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
         }
     }
 
-    LaunchedEffect(finish) {
-        if (finish) {
-            vm.consumeFinish()
+    LaunchedEffect(Unit) {
+        vm.finishEvent.collect {
             activity.finish()
         }
     }
 
+    val pageBackdrop = rememberLayerBackdrop(onDraw = { drawContent() })
     MaterialTheme(colorScheme = colorScheme) {
         Box(
             modifier = Modifier
@@ -189,15 +238,46 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                 .onSizeChanged { slideWidthPx = it.width.toFloat() }
                 .background(MaterialTheme.colorScheme.surface),
         ) {
-            PosterBackdrop(
-                pic = backdropSource,
-                onImage = { image ->
-                    scope.launch {
-                        val seed = withContext(Dispatchers.Default) { ImagePalette.seedOf(image) }
-                        if (seed != null && backdropSeed == null) backdropSeed = seed
+            if (flatHero) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxSize().layerBackdrop(pageBackdrop)) {
+                        val info = vm.vodInfo
+                        if (info != null) {
+                            DetailHeroPoster(
+                                title = info.name ?: "TVBox",
+                                altTitle = info.en,
+                                picture = info.pic,
+                                year = info.year,
+                                onImage = { image ->
+                                    scope.launch {
+                                        val seed = withContext(Dispatchers.Default) { ImagePalette.seedOf(image) }
+                                        if (seed != null && backdropSeed == null) backdropSeed = seed
+                                    }
+                                },
+                                onBackdropPic = { backdropPic = it },
+                                paused = full,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Brush.verticalGradient(*FlatPageScrimStops)),
+                        )
                     }
-                },
-            )
+                    FlatScrollScrim(progress = { heroProgress })
+                }
+            } else {
+                PosterBackdrop(
+                    pic = backdropSource,
+                    onImage = { image ->
+                        scope.launch {
+                            val seed = withContext(Dispatchers.Default) { ImagePalette.seedOf(image) }
+                            if (seed != null && backdropSeed == null) backdropSeed = seed
+                        }
+                    },
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -223,24 +303,28 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                                     retryText = "",
                                     modifier = Modifier.weight(1f),
                                 )
-                                SourceSection(vm, currentSourceName = null, revision = revision)
+                                SourceSection(vm, currentSourceName = null)
                             }
                         }
 
                         is DetailViewModel.PageState.Ready -> {
-                            DetailContent(
-                                activity = activity,
-                                vm = vm,
-                                revision = revision,
-                                onPosterPic = { backdropPic = it },
-                                onSeed = { argb -> if (argb != null) backdropSeed = argb },
-                                onCardLongClick = { vodMenu.show(it) },
-                            )
+                            CompositionLocalProvider(LocalTopBarGlassBackdrop provides pageBackdrop) {
+                                DetailContent(
+                                    activity = activity,
+                                    vm = vm,
+                                    listState = listState,
+                                    onPosterPic = { backdropPic = it },
+                                    onSeed = { argb -> if (argb != null) backdropSeed = argb },
+                                )
+                            }
                         }
                     }
                 }
                 if (!fullBox || exitingFullscreen) {
-                    DetailTopScrim(modifier = Modifier.align(Alignment.TopCenter))
+                    DetailTopScrim(
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        alpha = if (flatHero) 1f else 1f - heroProgress,
+                    )
                 }
             }
 
@@ -275,7 +359,20 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
             }
         }
 
-        EpisodeSheet(vm, revision, slideFromEnd = fullBox && isLandscapeNow)
+        EpisodeSheet(vm, slideFromEnd = fullBox && isLandscapeNow, showQuality = full)
         VodCardMenu(vodMenu) { menuContext.jumpToSearch(it) }
     }
+}
+
+@Composable
+private fun FlatScrollScrim(progress: () -> Float) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Color.Black.copy(
+                    alpha = FlatScrollScrimAlpha * progress().coerceIn(0f, 1f),
+                ),
+            ),
+    )
 }

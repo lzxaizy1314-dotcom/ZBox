@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -33,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.github.tvbox.osc.R
-import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.bean.SourceBean
 import com.github.tvbox.osc.net.SearchSettings
 import com.github.tvbox.osc.util.HomeSettings
@@ -52,33 +53,26 @@ private val SourceCardShapeRight = RoundedCornerShape(
     bottomEnd = 28.dp,
 )
 
+private val ExactCardShape = RoundedCornerShape(28.dp)
+
 @Composable
-fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
-    val sources = remember { ApiConfig.get().getSourceBeanList().filter(SourceBean::isSearchable) }
+fun SearchSettingsSheet(
+    sources: List<SourceBean>,
+    selected: Set<String>,
+    onApplySelection: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val allKeys = remember(sources) { sources.map { it.key.orEmpty() }.toSet() }
     val homeLayout by HomeSettings.layoutFlow.collectAsStateWithLifecycle()
     var exactMatch by remember { mutableStateOf(SearchSettings.isExactMatchEnabled()) }
-    var selected by remember {
-        val selection = SearchSettings.currentSelection()
-        mutableStateOf(
-            when {
-                selection == null -> allKeys
-                selection.isEmpty() -> emptySet()
-                else -> selection.filter { it in allKeys }.toSet().ifEmpty { allKeys }
-            },
-        )
-    }
 
-    fun applySelection(next: Set<String>) {
-        selected = next
-        SearchSettings.putSourcesForSearch(next)
-        onSelectionChanged()
-    }
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.7f).dp
 
     AVBoxBottomSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.search_settings),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.heightIn(max = maxSheetHeight),
         headerContent = {
             Text(
                 text = stringResource(R.string.search_home_poster),
@@ -103,6 +97,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                 onOptionSelected = { HomeSettings.setLayout(it) },
                 style = SegmentStyle.Separated,
                 containerColor = MaterialTheme.colorScheme.surfaceBright,
+                pressMorph = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -114,6 +109,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                 SettingsCard(
                     position = SettingsCardPosition.SINGLE,
                     color = MaterialTheme.colorScheme.surfaceBright,
+                    shape = ExactCardShape,
                 ) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.search_exact),
@@ -145,8 +141,8 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = { applySelection(allKeys) }) { Text(stringResource(R.string.common_select_all)) }
-                TextButton(onClick = { applySelection(allKeys - selected) }) { Text(stringResource(R.string.common_invert_selection)) }
+                TextButton(onClick = { onApplySelection(allKeys) }) { Text(stringResource(R.string.common_select_all)) }
+                TextButton(onClick = { onApplySelection(allKeys - selected) }) { Text(stringResource(R.string.common_invert_selection)) }
             }
             if (sources.isEmpty()) {
                 Text(
@@ -173,7 +169,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                                 dotOnLeft = true,
                                 shape = SourceCardShapeLeft,
                                 onClick = {
-                                    applySelection(
+                                    onApplySelection(
                                         if (leftKey in selected) selected - leftKey else selected + leftKey,
                                     )
                                 },
@@ -188,7 +184,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit, onSelectionChanged: () -> Unit) {
                                     dotOnLeft = false,
                                     shape = SourceCardShapeRight,
                                     onClick = {
-                                        applySelection(
+                                        onApplySelection(
                                             if (rightKey in selected) selected - rightKey else selected + rightKey,
                                         )
                                     },

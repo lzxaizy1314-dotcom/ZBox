@@ -160,6 +160,22 @@ class TmdbApiTest {
     }
 
     @Test
+    fun pickBest_seasonHintRejectsMovieCandidates() {
+        val hits = listOf(hit(id = 3, title = "流人", year = 2004))
+        assertNull(TmdbApi.pickBest(hits, "流人第六季", 0))
+        assertEquals(3, TmdbApi.pickBest(hits, "流人", 0)?.id)
+    }
+
+    @Test
+    fun pickBest_seasonHintKeepsTvCandidate() {
+        val hits = listOf(
+            hit(id = 3, title = "流人", year = 2004),
+            hit(id = 4, mediaType = "tv", title = "流人", year = 2008),
+        )
+        assertEquals(4, TmdbApi.pickBest(hits, "流人第六季", 0)?.id)
+    }
+
+    @Test
     fun cleanTitle_stripsExtendedLabels() {
         assertEquals("西游记", TmdbApi.cleanTitle("西游记国语版"))
         assertEquals("西游记", TmdbApi.cleanTitle("西游记（未删减）"))
@@ -258,6 +274,45 @@ class TmdbApiTest {
         assertEquals("/p12.jpg", paths.first())
         assertTrue(TmdbApi.parseBackdropPaths("not json").isEmpty())
         assertTrue(TmdbApi.parseBackdropPaths("{}").isEmpty())
+    }
+
+    @Test
+    fun parseLogoPaths_prefersChineseThenEnglishThenOthers() {
+        val json = """
+            {"logos":[
+              {"file_path":"/en.png","iso_639_1":"en","vote_average":9.0},
+              {"file_path":"/zh.png","iso_639_1":"zh","vote_average":1.0},
+              {"file_path":"/ja.png","iso_639_1":"ja","vote_average":9.9},
+              {"file_path":"/none.png","iso_639_1":null,"vote_average":5.0}
+            ]}
+        """.trimIndent()
+        assertEquals(listOf("/zh.png", "/en.png", "/none.png"), TmdbApi.parseLogoPaths(json))
+    }
+
+    @Test
+    fun parseLogoPaths_treatsRegionVariantsByLanguagePrefix() {
+        val json = """
+            {"logos":[
+              {"file_path":"/tw.png","iso_639_1":"zh-TW","vote_average":8.0},
+              {"file_path":"/us.png","iso_639_1":"en-US","vote_average":9.0}
+            ]}
+        """.trimIndent()
+        assertEquals(listOf("/tw.png", "/us.png"), TmdbApi.parseLogoPaths(json))
+    }
+
+    @Test
+    fun parseLogoPaths_sortsByVoteWithinLanguageAndCapsAtThree() {
+        val json = """
+            {"logos":[
+              {"file_path":"/a.png","iso_639_1":"zh","vote_average":1.0},
+              {"file_path":"/b.png","iso_639_1":"zh","vote_average":3.0},
+              {"file_path":"/c.png","iso_639_1":"zh","vote_average":2.0},
+              {"file_path":"/d.png","iso_639_1":"zh","vote_average":0.5}
+            ]}
+        """.trimIndent()
+        assertEquals(listOf("/b.png", "/c.png", "/a.png"), TmdbApi.parseLogoPaths(json))
+        assertTrue(TmdbApi.parseLogoPaths("not json").isEmpty())
+        assertTrue(TmdbApi.parseLogoPaths("{}").isEmpty())
     }
 
     @Test
@@ -414,6 +469,44 @@ class TmdbApiTest {
         assertEquals(0, TmdbApi.foldSegmentsPerEpisode(seasons, 58, null))
         assertEquals(0, TmdbApi.foldSegmentsPerEpisode(seasons, 47, null))
         assertEquals(0, TmdbApi.foldSegmentsPerEpisode(emptyList(), 141, null))
+    }
+
+    @Test
+    fun mapEpisodesByNumber_mapsSiteNumbersToSeason() {
+        val seasons = listOf(TmdbApi.TmdbSeason(1, 104))
+        val refs = TmdbApi.mapEpisodesByNumber(
+            seasons,
+            9,
+            null,
+            listOf(90, 91, 92, 93, 94, 85, 87, 88, 89),
+        )!!
+        assertEquals(9, refs.size)
+        assertEquals(TmdbApi.TmdbEpisodeRef(1, 90), refs[0])
+        assertEquals(TmdbApi.TmdbEpisodeRef(1, 94), refs[4])
+        assertEquals(TmdbApi.TmdbEpisodeRef(1, 89), refs[8])
+    }
+
+    @Test
+    fun mapEpisodesByNumber_requiresSingleSeasonWithoutHint() {
+        assertNull(
+            TmdbApi.mapEpisodesByNumber(
+                listOf(TmdbApi.TmdbSeason(1, 24), TmdbApi.TmdbSeason(2, 12)),
+                2,
+                null,
+                listOf(1, 2),
+            ),
+        )
+        assertNull(TmdbApi.mapEpisodesByNumber(listOf(TmdbApi.TmdbSeason(1, 104)), 2, 1, listOf(1, 2)))
+    }
+
+    @Test
+    fun mapEpisodesByNumber_rejectsUnparsedDuplicateAndOutOfRange() {
+        val seasons = listOf(TmdbApi.TmdbSeason(1, 47))
+        assertNull(TmdbApi.mapEpisodesByNumber(seasons, 2, null, listOf(-1, 2)))
+        assertNull(TmdbApi.mapEpisodesByNumber(seasons, 2, null, listOf(5, 5)))
+        assertNull(TmdbApi.mapEpisodesByNumber(seasons, 2, null, listOf(46, 48)))
+        assertNull(TmdbApi.mapEpisodesByNumber(seasons, 2, null, listOf(1)))
+        assertNull(TmdbApi.mapEpisodesByNumber(seasons, 141, null, (1..141).toList()))
     }
 
     @Test

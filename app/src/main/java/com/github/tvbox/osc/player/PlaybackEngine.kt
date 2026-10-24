@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.WebView
+import com.github.tvbox.osc.bean.VodInfo
 import androidx.appcompat.view.ContextThemeWrapper
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.host.EngineSurfaceRenderViewFactory
@@ -18,14 +19,35 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.util.HashMap
 
-class PlaybackEngine(context: Context) : PlaybackHostApi {
+class PlaybackEngine(context: Context) : PlaybackHostApi, VideoCodecObserver {
 
     private val appContext: Context = context.applicationContext
+
+    private val _videoCodec = MutableStateFlow(VideoCodecInfo())
+
+    val videoCodec: StateFlow<VideoCodecInfo> = _videoCodec.asStateFlow()
+
+    override val codecInfo: VideoCodecInfo
+        get() = _videoCodec.value
+
+    override fun onCodecInitialized(name: String, kind: PlayerDecodeKind) {
+        _videoCodec.update {
+            it.copy(decoderName = name, kind = kind, generation = it.generation + 1)
+        }
+    }
+
+    override fun onCodecReleased() {
+        _videoCodec.update { VideoCodecInfo(generation = it.generation + 1) }
+    }
 
     private val videoView: MyVideoView
 
@@ -60,7 +82,6 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     }
 
     private var pageRef: WeakReference<PlaybackPage>? = null
-    private var session: PlaybackSession? = null
     private var released: Boolean = false
 
     private var liveMode: Boolean = false
@@ -77,7 +98,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     init {
         LOG.i(TAG + " engine create")
         videoView = createPlayerView()
-        controller.setViewBridge(headlessView)
+        controller.attachViewBridge(headlessView)
         controller.initFetch()
         controller.initPreload()
     }
@@ -93,6 +114,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     private fun createPlayerView(): MyVideoView {
         val ctx = ContextThemeWrapper(appContext, R.style.AppTheme_NoActionBar)
         val view = MyVideoView(ctx)
+        view.videoCodecObserver = this
         view.setRenderViewFactory(
             if (KV.get(HawkConfig.PLAY_RENDER, 1) == 1) {
                 EngineSurfaceRenderViewFactory.create()
@@ -144,6 +166,14 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         if (controller.handlePlayStateForMusicSession(playState)) {
             return
         }
+        val page = attachedPage()
+        if (page != null && !page.isAudioOnlyPage()) {
+            if (playState == PlayState.COMPLETED) {
+                controller.onPlaybackCompleted()
+                return
+            }
+            if (playState == PlayState.ERROR) controller.onKernelPlayError()
+        }
         activeView().startDanmuIfReady()
     }
 
@@ -159,7 +189,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         setLiveFlag(true)
         cancelIdleRelease()
         LOG.i(TAG + " re-enter live state (after vod takeover)")
-        session = null
+        controller.clearSession()
         controller.clearStartedContent()
         videoView.setProgressSink(null)
         videoView.setExoDiskCacheEnabled(false)
@@ -170,7 +200,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     fun enterLive() {
         if (released) return
         progressSampler.flushNow()
-        session = null
+        controller.clearSession()
         controller.clearStartedContent()
         LOG.i(TAG + " enter live mode")
         val page = attachedPage()
@@ -241,14 +271,16 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         if (liveMode) exitLiveState()
         pageRef = WeakReference(page)
         if (!videoView.isPlaying) videoView.coverVideoFrame()
-        controller.setViewBridge(page.viewBridge())
+        val bridge = page.viewBridge()
+        controller.attachViewBridge(bridge)
+        controller.playerCfg()?.let { bridge.applyPlayerConfig(it) }
         if (!page.isAudioOnlyPage()) {
             videoView.attachContainerTo(page.renderSlot())
             videoView.alignRenderViewToConfig(configuredRenderType())
         }
         cancelIdleRelease()
         consumeServiceLostKeep(false)
-        LOG.i(TAG + " attach page=" + page.hashCode() + " key=" + (session?.playbackKey() ?: "-"))
+        LOG.i(TAG + " attach page=" + page.hashCode() + " key=" + (controller.currentSession()?.playbackKey() ?: "-"))
     }
 
     fun detach(page: PlaybackPage) {
@@ -275,7 +307,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         videoView.releaseController()
         videoView.setDanmuView(null)
         videoView.detachContainerFromHost()
-        controller.setViewBridge(headlessView)
+        controller.attachViewBridge(headlessView)
         scheduleIdleRelease()
         LOG.i(TAG + (if (keepPlayback) " detach for handover page=" else " detach page=") + page.hashCode())
     }
@@ -326,7 +358,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
             main.post { discardStartedContentOf(owners) }
             return
         }
-        val current = session
+        val current = controller.currentSession()
         if (current == null || owners.isEmpty()) return
         val owner = current.sourceKey() + "|" + current.vod().id
         if (!owners.contains(owner)) return
@@ -354,7 +386,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         val page = attachedPage()
         pageRef = null
         page?.onServiceStopped()
-        controller.setViewBridge(headlessView)
+        controller.attachViewBridge(headlessView)
         controller.onHostDestroy()
         PlaybackService.forceStopSession(appContext)
         videoView.releaseController()
@@ -364,6 +396,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
         controller.releaseFetch()
         controller.stopParse()
         controller.stopLoadWebView(true)
+        onCodecReleased()
         stateScope.cancel()
         main.removeCallbacksAndMessages(null)
     }
@@ -408,7 +441,6 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     }
 
     override fun setData(session: PlaybackSession) {
-        this.session = session
         controller.startSession(session)
     }
 
@@ -423,9 +455,6 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
     }
 
     override fun selectQuality(position: Int): Boolean = false
-
-    override fun setAutoSwitchLineEnabled(enabled: Boolean) {
-    }
 
     override fun setPreviewMode(previewMode: Boolean) {
     }
@@ -527,8 +556,7 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
 
         override fun currentUrl(): String? = if (released) null else videoView.currentUrl
 
-        override fun onContentUrlSet(url: String?) {
-            // 无头桥接没有进度条；详情页路径由 PlayContainerViewBridge 直接转给页面控制器。
+        override fun onSessionVodUpdated(vod: VodInfo) {
         }
 
         override fun releasePlayer() {
@@ -575,19 +603,6 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
             if (!released) videoView.ensureRenderViewMatchesConfig()
         }
 
-        override fun setAudioOnlyMode(audioOnly: Boolean) {
-            if (released) return
-            if (!audioOnly) {
-                videoView.alignRenderViewToConfig(configuredRenderType())
-            }
-            (videoView.mediaPlayer as? ExoPlayer)?.setAudioOnlyMode(audioOnly)
-        }
-
-        override fun isAudioOnlyMode(): Boolean {
-            if (released) return false
-            return (videoView.mediaPlayer as? ExoPlayer)?.isAudioOnlyMode() == true
-        }
-
         override fun playExternalPlayer(
             playerType: Int,
             url: String,
@@ -608,28 +623,14 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
 
         override fun startVideoPlayback(url: String, headers: HashMap<String, String>?, forceExoPlayer: Boolean) {
             if (released) return
-            if (videoView.isKernelErrored()) {
-                videoView.requireKernelRebuild()
-                LOG.i(TAG + " rebuild errored kernel on start (headless)")
-            }
-            val kernelPresent = videoView.mediaPlayer != null
-            val rebuildKernel = videoView.consumeKernelRebuildRequired()
-            val reusePlayer =
-                KernelReusePolicy.decide(kernelPresent, rebuildKernel, forceExoPlayer, true) == KernelDecision.REUSE
-            val sameContent = reusePlayer && controller.isSameStartedContent()
-            if (!reusePlayer && kernelPresent) releasePlayer()
-            if (sameContent) videoView.saveCurrentProgress()
-            videoView.setProgressKey(controller.progressKey())
-            videoView.setTrackMemoryKey("")
-            controller.markContentStarted()
-            videoView.setUrl(url, headers)
-            if (reusePlayer) {
-                val base = controller.playTimeoutBasePosition()
-                videoView.skipPositionWhenPlay((if (sameContent) videoView.resumePositionForReplay(base) else base).toInt())
-                videoView.replay(false)
-            } else {
-                videoView.start()
-            }
+            controller.startVideoPlayback(
+                videoView,
+                url,
+                headers,
+                forceExoPlayer,
+                releaseKernel = { releasePlayer() },
+                trackMemoryKey = "",
+            )
         }
 
         override fun switchPlayerKernel(): Boolean {
@@ -638,6 +639,8 @@ class PlaybackEngine(context: Context) : PlaybackHostApi {
 
         override fun applyPlayerConfig(cfg: JSONObject) {
         }
+
+        override fun videoCodecInfo(): VideoCodecInfo = videoCodec.value
 
         override fun firstUrlByArray(url: String): String {
             return PlayerSwitchUseCase.firstUrlByArray(url)

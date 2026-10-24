@@ -16,8 +16,8 @@ android {
         applicationId = "com.github.avbox.osc"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 29
-        versionName = "1.2.5"
+        versionCode = 33
+        versionName = "1.2.9"
         multiDexEnabled = true
         ndk {
             abiFilters += setOf("arm64-v8a")
@@ -25,6 +25,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf("META-INF/DEPENDENCIES", "META-INF/beans.xml")
         }
@@ -132,7 +135,6 @@ dependencies {
         exclude(group = "xmlpull", module = "xmlpull")
         exclude(group = "xpp3", module = "xpp3_min")
     }
-    implementation(libs.eventbus)
     implementation(libs.mmkv)
     implementation(libs.danmaku.flame.master)
 

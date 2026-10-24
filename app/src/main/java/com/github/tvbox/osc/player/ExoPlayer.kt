@@ -42,6 +42,12 @@ class ExoPlayer(context: Context) : KernelPlayer() {
 
     private var useDiskCacheFlag = false
 
+    private var videoCodecObserver: VideoCodecObserver? = null
+
+    fun setVideoCodecObserver(observer: VideoCodecObserver?) {
+        videoCodecObserver = observer
+    }
+
     private var contentKeyValue = ""
 
     private var awaitingPrepared = false
@@ -61,6 +67,7 @@ class ExoPlayer(context: Context) : KernelPlayer() {
             playbackLooper = if (PreloadManagerHolder.enabled()) PreloadManagerHolder.preloadLooper() else null,
             preloadTargetChecker = { url, headers -> PreloadManagerHolder.isPreloadTargetUrl(url, headers) },
             playCacheEnabled = { KV.get(HawkConfig.PLAY_CACHE, false) },
+            videoCodecObserver = videoCodecObserver,
         )
         val newEngine = PlayerEngine(appContext, config)
         engine = newEngine
@@ -191,12 +198,6 @@ class ExoPlayer(context: Context) : KernelPlayer() {
     override fun detachVideoSurface() {
         engine?.detachVideoSurface()
     }
-
-    fun setAudioOnlyMode(audioOnly: Boolean) {
-        engine?.setAudioOnlyMode(audioOnly)
-    }
-
-    fun isAudioOnlyMode(): Boolean = engine?.isAudioOnlyMode == true
 
     override fun setVolume(leftVolume: Float, rightVolume: Float) {
         engine?.setVolume(leftVolume, rightVolume)
@@ -332,6 +333,8 @@ class ExoPlayer(context: Context) : KernelPlayer() {
 
     fun videoDecoderName(): String = engine?.videoDecoderName ?: ""
 
+    fun videoDecodeKind(): PlayerDecodeKind = engine?.videoDecodeKind ?: PlayerDecodeKind.UNKNOWN
+
     fun audioCodecChoice(): AudioCodecChoice? = engine?.audioCodecChoice
 
     fun audioRendererName(): String? = engine?.audioRendererName
@@ -354,7 +357,17 @@ class ExoPlayer(context: Context) : KernelPlayer() {
 
     fun lastErrorKind(): Int = engine?.lastErrorKind ?: ERROR_KIND_UNKNOWN
 
+    fun lastErrorTrackKind(): Int = engine?.lastErrorTrackKind ?: ERROR_TRACK_UNKNOWN
+
+    fun lastErrorFormatId(): String? = engine?.lastErrorFormatId
+
     fun lastErrorCodeName(): String? = engine?.lastErrorCodeName
+
+    fun lastErrorHttpStatus(): Int = engine?.lastErrorHttpStatus ?: 0
+
+    fun lastErrorExceedsDecodeCapability(): Boolean = engine?.lastErrorExceedsDecodeCapability ?: false
+
+    fun lastErrorTenBitFormat(): Boolean = engine?.lastErrorTenBitFormat ?: false
 
     private fun bufferTimes(): Int {
         val value = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT)
@@ -371,6 +384,10 @@ class ExoPlayer(context: Context) : KernelPlayer() {
         const val ERROR_KIND_UNKNOWN = 0
         const val ERROR_KIND_NETWORK = 1
         const val ERROR_KIND_DECODE = 2
+
+        const val ERROR_TRACK_UNKNOWN = 0
+        const val ERROR_TRACK_AUDIO = 1
+        const val ERROR_TRACK_VIDEO = 2
 
         @JvmStatic
         fun setPreferSoftwareDecode(prefer: Boolean) {

@@ -5,6 +5,7 @@ import android.widget.Toast
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.danmu.DanmuLoadController
 import com.github.tvbox.osc.player.state.DanmuSearchSheetState
+import com.github.tvbox.osc.util.LOG
 import master.flame.danmaku.ui.widget.DanmakuView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 private const val PRELOAD_TOAST_REFRESH_DELAY_MS = 1000L
+
+data class PlayerTipState(
+    val msg: String = "",
+    val loading: Boolean = false,
+    val err: Boolean = false,
+)
 
 internal class PlayContainerOverlays(private val host: PlayContainer) {
 
@@ -56,7 +63,7 @@ internal class PlayContainerOverlays(private val host: PlayContainer) {
     }
 
     fun checkDanmu(danmu: String?, callback: DanmuLoadController.LoadCallback?) {
-        host.scheduler.setPlayDanmu(danmu)
+        host.scheduler.onDanmuChecked(danmu)
         val controller = host.danmuLoadController ?: return
         val vod = host.scheduler.vod()
         val series = if (vod == null) null else host.scheduler.currentSeries(vod.playFlag, vod.playIndex)
@@ -80,28 +87,28 @@ internal class PlayContainerOverlays(private val host: PlayContainer) {
         val vod = host.scheduler.vod()
         val series = if (vod == null) null else host.scheduler.currentSeries(vod.playFlag, vod.playIndex)
         val uiState = host.mController.getUiState()
-        uiState.danmuSearchSheet = DanmuSearchSheetState(
+        uiState.openDanmuSearchSheet(DanmuSearchSheetState(
             series?.name ?: "",
             host.scheduler.vod()?.name ?: "",
         ) { danmu ->
             if (host.isAttached()) {
                 checkDanmu(danmu)
             }
-        }
+        })
     }
 
     fun setTip(msg: String, loading: Boolean, err: Boolean) {
         if (!host.isAttached()) return
-        PlayerTipBridge.setTip(msg, loading, err)
+        onTipStateChanged(PlayerTipState(msg, loading, err))
     }
 
     fun hideTip() {
-        PlayerTipBridge.hide()
+        onTipStateChanged(PlayerTipState())
     }
 
     fun hideTipOnUiThread() {
         if (!host.isAttached()) return
-        PlayerTipBridge.hide()
+        onTipStateChanged(PlayerTipState())
     }
 
     fun showPreloadReady() {
@@ -135,9 +142,9 @@ internal class PlayContainerOverlays(private val host: PlayContainer) {
         }
     }
 
-    fun errorWithRetry(err: String, finish: Boolean) {
+    fun errorWithRetry(err: String, finish: Boolean, playbackError: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            host.mHandler?.post { errorWithRetry(err, finish) }
+            host.mHandler?.post { errorWithRetry(err, finish, playbackError) }
             return
         }
         if (host.scheduler.isPlaybackStarted()) {
@@ -148,22 +155,47 @@ internal class PlayContainerOverlays(private val host: PlayContainer) {
                 if (host.scheduler.autoRetry()) return@launch
                 host.scheduler.stopMusicSessionForFailedPlayback()
                 if (!host.isAttached()) return@launch
-                setTip(err, false, true)
+                val text = terminalErrorText(err, playbackError)
+                setTip(text, false, true)
                 if (finish) {
-                    Toast.makeText(host.context, err, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(host.context, text, Toast.LENGTH_SHORT).show()
                 }
             }
             return
         }
         scope.launch {
             if (!host.scheduler.autoRetry()) {
+                host.scheduler.cancelPlayTimeout()
                 host.scheduler.stopMusicSessionForFailedPlayback()
                 if (!host.isAttached()) return@launch
-                setTip(err, false, true)
+                val text = terminalErrorText(err, playbackError)
+                setTip(text, false, true)
                 if (finish) {
-                    Toast.makeText(host.context, err, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(host.context, text, Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
+
+    private fun terminalErrorText(err: String, playbackError: Boolean): String {
+        val httpStatus = if (playbackError) host.scheduler.errorHttpStatusForTip() else 0
+        val text = when {
+            host.scheduler.isSourceStub() -> host.context.getString(R.string.player_source_invalid)
+            host.scheduler.isIsoBandwidthStopped() -> host.context.getString(R.string.player_iso_bandwidth_low)
+            host.scheduler.isLastErrorExceedsDecodeCapability() -> host.context.getString(
+                if (host.scheduler.isLastErrorTenBitFormat()) R.string.player_decode_10bit_tip
+                else R.string.player_decode_exceeds_capability,
+            )
+            httpStatus > 0 -> host.context.getString(R.string.player_error_play_http, httpStatus)
+            else -> err
+        }
+        LOG.i(
+            "echo-player tip: $text | stub=" + host.scheduler.isSourceStub() +
+                " bandwidth=" + host.scheduler.isIsoBandwidthStopped() +
+                " exceeds=" + host.scheduler.isLastErrorExceedsDecodeCapability() +
+                " tenBit=" + host.scheduler.isLastErrorTenBitFormat() +
+                " http=" + httpStatus,
+        )
+        return text
     }
 }
