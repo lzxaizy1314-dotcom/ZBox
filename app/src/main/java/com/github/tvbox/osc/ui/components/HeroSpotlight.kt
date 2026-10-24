@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
 
 private const val HERO_SPOTLIGHT_PAGES_PER_SET = 100_000
 
-private const val HERO_SPOTLIGHT_HEIGHT_RATIO = 0.58f
+private const val HERO_SPOTLIGHT_HEIGHT_RATIO = 0.50f
 
 internal val HeroSpotlightFadeStops = arrayOf(
     0.45f to 0f,
@@ -61,7 +61,7 @@ internal val HeroSpotlightFadeStops = arrayOf(
     1f to 1f,
 )
 
-private val HeroSpotlightMinHeight = 360.dp
+private val HeroSpotlightMinHeight = 320.dp
 
 private val HeroSpotlightMaxHeight = 560.dp
 
@@ -118,10 +118,13 @@ fun HeroSpotlight(
         }
     }
 
+    // ZBox 二开：Hero 改杂志封面卡——两侧留边、圆角 24，不再满幅出血
     Box(
         modifier = modifier
+            .padding(horizontal = 16.dp, top = 8.dp)
             .fillMaxWidth()
-            .height(heroHeight),
+            .height(heroHeight)
+            .clip(RoundedCornerShape(24.dp)),
     ) {
         HorizontalPager(
             state = pagerState,
@@ -132,27 +135,6 @@ fun HeroSpotlight(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (fadeToBackdrop) {
-                            Modifier
-                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                                .drawWithContent {
-                                    drawContent()
-                                    drawRect(
-                                        brush = Brush.verticalGradient(
-                                            *HeroSpotlightFadeStops
-                                                .map { (position, alpha) ->
-                                                    position to Color.White.copy(alpha = 1f - alpha)
-                                                }
-                                                .toTypedArray(),
-                                        ),
-                                        blendMode = BlendMode.DstIn,
-                                    )
-                                }
-                        } else {
-                            Modifier
-                        },
-                    )
                     .clickable { onCardClick(video) },
             ) {
                 VodPoster(
@@ -176,29 +158,26 @@ fun HeroSpotlight(
                         }
                     },
                 )
-                if (!fadeToBackdrop) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    *HeroSpotlightFadeStops
-                                        .map { (position, alpha) ->
-                                            position to backdropColor.copy(alpha = alpha)
-                                        }
-                                        .toTypedArray(),
-                                ),
+                // 封面卡底部渐变罩，保证白色标题可读（替代原全幅渐隐，去掉离屏合成开销）
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.45f to Color.Transparent,
+                                0.72f to Color.Black.copy(alpha = 0.28f),
+                                1f to Color.Black.copy(alpha = 0.68f),
                             ),
-                    )
-                }
+                        ),
+                )
             }
         }
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.Start,
         ) {
             HeroSpotlightCaption(video = current)
             if (count > 1) {
@@ -217,13 +196,11 @@ private fun HeroSpotlightCaption(video: Movie.Video) {
         text = video.name ?: "",
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight(800),
-        color = MaterialTheme.colorScheme.onSurface,
-        textAlign = TextAlign.Center,
+        color = Color.White,
+        textAlign = TextAlign.Start,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp),
+        modifier = Modifier.fillMaxWidth(),
     )
     val rating = ratingBadgeText(video.note)
     if (!rating.isNullOrBlank()) {
@@ -231,12 +208,12 @@ private fun HeroSpotlightCaption(video: Movie.Video) {
             text = if (rating != video.note?.trim()) stringResource(R.string.detail_rating, rating) else rating,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
+            color = Color.White.copy(alpha = 0.88f),
+            textAlign = TextAlign.Start,
             maxLines = 1,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 4.dp, start = 24.dp, end = 24.dp),
+                .padding(top = 4.dp),
         )
     }
 }
@@ -247,7 +224,7 @@ private fun HeroSpotlightDots(count: Int, selected: Int) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(count) { index ->
@@ -259,9 +236,9 @@ private fun HeroSpotlightDots(count: Int, selected: Int) {
                     .clip(RoundedCornerShape(50))
                     .background(
                         if (active) {
-                            MaterialTheme.colorScheme.onSurface
+                            Color.White
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.24f)
+                            Color.White.copy(alpha = 0.35f)
                         },
                     ),
             )
