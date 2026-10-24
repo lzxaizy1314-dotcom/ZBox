@@ -21,7 +21,8 @@ object LiquidGlassState {
     val config: LiquidGlassConfig get() = current
 
     private fun load(): LiquidGlassConfig = LiquidGlassConfig(
-        navbarEnabled = KV.get(HawkConfig.LIQUID_GLASS_NAVBAR, true),
+        // ZBox 二开：默认关掉液态玻璃底栏，走内置实色白底导航（1 号暖纸风）；设置里仍可手动开回。
+        navbarEnabled = KV.get(HawkConfig.LIQUID_GLASS_NAVBAR, false),
         controlsEnabled = KV.get(HawkConfig.LIQUID_GLASS_CONTROLS, true),
         blurDp = KV.get(HawkConfig.LIQUID_GLASS_BLUR, DEFAULT_BLUR_DP),
         distortionDp = KV.get(HawkConfig.LIQUID_GLASS_DISTORTION, DEFAULT_DISTORTION_DP),
