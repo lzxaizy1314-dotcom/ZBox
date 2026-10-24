@@ -59,7 +59,12 @@ fun AVBoxTheme(
 
         else -> AppThemeState.resolveScheme(context, config, darkTheme)
     }
-    val colorScheme = if (darkTheme && config.pureBlack) baseScheme.toPureBlack() else baseScheme
+    // ZBox 二开：浅色模式统一套暖纸杂志风色板（纸底/白卡/暖橙），深色保持上游原样。
+    val colorScheme = when {
+        darkTheme && config.pureBlack -> baseScheme.toPureBlack()
+        !darkTheme -> baseScheme.toWarmPaper()
+        else -> baseScheme
+    }
 
     if (manageStatusBarIcons) {
         ApplyAppThemeBars(isDark = darkTheme)
